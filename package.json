@@ -11,7 +11,13 @@
     "dev": "bun run --filter './apps/web' dev",
     "build": "bun run --filter './apps/*' build",
     "test": "bun test",
-    "lint": "bun run --filter './apps/*' --filter './packages/*' lint"
+    "lint": "bun run --filter './apps/*' --filter './packages/*' lint",
+    "deploy": "bun run deploy/deploy.ts",
+    "deploy:testnet": "NETWORK=testnet bun run deploy/deploy.ts",
+    "deploy:mainnet": "NETWORK=mainnet bun run deploy/deploy.ts",
+    "deploy:force": "bun run deploy/deploy.ts --force",
+    "deploy:carapace": "bun run deploy/deploy.ts --tags carapace",
+    "deploy:hatch": "bun run deploy/deploy.ts --tags hatch"
   },
   "devDependencies": {
     "@types/bun": "^1.1.10",

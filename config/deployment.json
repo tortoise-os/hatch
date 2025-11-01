@@ -1,0 +1,26 @@
+{
+  "testnet": {
+    "network": "testnet",
+    "carapace": {
+      "packageId": "0x1cf2a4770d40e26f748a54714f7713b753d7101f75dd732a5480e2ef139b54a4",
+      "pools": [],
+      "deployed": true
+    },
+    "hatch": {
+      "packageId": "0x559ee79d0e174b337c904bea96bdd8c19e5074df8341c0756b214c77e243925d",
+      "deployed": true
+    }
+  },
+  "mainnet": {
+    "network": "mainnet",
+    "carapace": {
+      "packageId": null,
+      "pools": {},
+      "deployed": false
+    },
+    "hatch": {
+      "packageId": null,
+      "deployed": false
+    }
+  }
+}

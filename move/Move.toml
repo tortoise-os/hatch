@@ -4,16 +4,21 @@ version = "0.1.0"
 edition = "2024.beta"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "4e8b6eda7d6411d80c62f39ac8a4f028e8d174c4" }
 
-# Uncomment when Carapace is published
-# Carapace = { local = "../../carapace/move" }
+# Carapace dependency
+# For local development: uses local path with 0x0 address
+# For deployment: scripts/deploy-integrated.sh temporarily updates this to the on-chain package address
+carapace = { local = "../../carapace/move" }
 
 [addresses]
 hatch = "0x0"
 
-# Carapace address (update after deployment)
-# carapace = "0x..."
+# Carapace address
+# Local dev: 0x0 (matches local dependency)
+# Deployment: Temporarily updated by deployment script, then restored
+# Actual deployed addresses are stored in config/deployment.json and .env.* files
+carapace = "0x0"
 
 [dev-dependencies]
 

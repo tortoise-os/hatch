@@ -1,0 +1,9 @@
+{
+  "name": "carapace",
+  "network": "testnet",
+  "packageId": "0x1cf2a4770d40e26f748a54714f7713b753d7101f75dd732a5480e2ef139b54a4",
+  "digest": "BHt3qbEDJXJF5VmKC9dnZSGaquGjQ6htjETyrsUMZerp",
+  "timestamp": "2025-11-01T18:16:37.782Z",
+  "deployer": "0xe91b754c809f16c3a88e7be33a56b348532c377fbea30ed92ea34371c68466b9",
+  "gasUsed": "1000000"
+}

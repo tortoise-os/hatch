@@ -15,8 +15,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@mysten/sui.js": "^0.54.1",
-    "@hatch/core": "workspace:*"
+    "@mysten/sui.js": "^0.54.1"
   },
   "devDependencies": {
     "@types/bun": "^1.1.10",

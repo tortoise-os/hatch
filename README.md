@@ -10,6 +10,25 @@ Flash loan protocol with cross-DEX arbitrage and leveraged yield farming capabil
 
 ## ⚡ Quick Start
 
+### Deploy to Testnet (Fastest)
+
+```bash
+# One-command deployment of Carapace + Hatch
+./scripts/deploy-integrated.sh
+
+# Create your first flash loan pool
+./scripts/create-flash-pool.sh
+
+# Test it out
+source .env.testnet
+bun run packages/strategy-sdk/examples/flash-loan-basic.ts
+```
+
+**Quick reference**: [DEPLOYMENT-QUICKSTART.md](./DEPLOYMENT-QUICKSTART.md)
+**Full integration guide**: [docs/INTEGRATION.md](./docs/INTEGRATION.md)
+
+### Alternative: Task-based Setup
+
 ```bash
 # Interactive setup guide
 task quick-start

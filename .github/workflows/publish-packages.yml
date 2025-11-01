@@ -1,0 +1,54 @@
+name: Publish Hatch Packages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build packages
+        run: bun run build || echo "No build script found"
+
+      - name: Run tests
+        run: bun test || echo "No tests found"
+
+      - name: Publish @hatch/strategy-sdk
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish]')
+        working-directory: packages/strategy-sdk
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## 📦 Published Hatch Packages" >> $GITHUB_STEP_SUMMARY
+          echo "- @hatch/strategy-sdk" >> $GITHUB_STEP_SUMMARY

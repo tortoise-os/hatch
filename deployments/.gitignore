@@ -1,0 +1,16 @@
+# Deployment artifacts
+# These are auto-generated and network-specific
+
+# Testnet deployments (commit these for team collaboration)
+# testnet/*.json
+
+# Mainnet deployments (definitely commit these)
+# !mainnet/*.json
+
+# Local/devnet deployments (don't commit)
+localnet/
+devnet/
+
+# Backup files
+*.backup
+*.bak
