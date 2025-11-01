@@ -1,0 +1,28 @@
+{
+  "flashPools": [],
+  "dexes": {
+    "cetus": {
+      "enabled": true,
+      "pools": {
+        "SUI/USDC": "0x..."
+      }
+    },
+    "turbos": {
+      "enabled": true,
+      "pools": {
+        "SUI/USDC": "0x..."
+      }
+    }
+  },
+  "strategy": {
+    "minProfitBps": 50,
+    "maxFlashAmount": "100000000000",
+    "maxGasPrice": "1000000000",
+    "slippageTolerance": 100
+  },
+  "monitoring": {
+    "priceCheckInterval": 5000,
+    "healthCheckInterval": 60000,
+    "alertThreshold": 10000
+  }
+}

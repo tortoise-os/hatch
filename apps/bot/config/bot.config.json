@@ -1,0 +1,80 @@
+{
+  "PROJECT_SETTINGS": {
+    "isLocal": true,
+    "isDeployed": false,
+    "PRICE_UNITS": 6,
+    "PRICE_DIFFERENCE": 0.5,
+    "GAS_LIMIT": 1000000,
+    "MIN_PROFIT_THRESHOLD": 1000000
+  },
+  "MONITORING": {
+    "POLL_INTERVAL_MS": 1000,
+    "WEB_SOCKET_ENABLED": true,
+    "HEIMDAHL_ENABLED": false
+  },
+  "EXECUTION": {
+    "DRY_RUN": true,
+    "MAX_SLIPPAGE_BPS": 100,
+    "MAX_TRADE_SIZE_USD": 10000
+  },
+  "DEXES": {
+    "TORTOISE_SWAP": {
+      "NAME": "TortoiseSwap",
+      "ENABLED": true,
+      "PACKAGE_ID": "",
+      "POOL_TYPE": "carapace::pool::Pool"
+    },
+    "CETUS": {
+      "NAME": "Cetus",
+      "ENABLED": true,
+      "PACKAGE_ID": "0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb",
+      "POOL_TYPE": "cetus_clmm::pool::Pool"
+    },
+    "TURBOS": {
+      "NAME": "Turbos",
+      "ENABLED": true,
+      "PACKAGE_ID": "0x91bfbc386a41afcfd9b2533058d7e915a1d3829089cc268ff4333d54d6339ca1",
+      "POOL_TYPE": "turbos::pool::Pool"
+    },
+    "AFTERMATH": {
+      "NAME": "Aftermath",
+      "ENABLED": true,
+      "PACKAGE_ID": "",
+      "POOL_TYPE": "aftermath::pool::Pool"
+    }
+  },
+  "TOKENS": {
+    "SUI": {
+      "ADDRESS": "0x2::sui::SUI",
+      "DECIMALS": 9,
+      "SYMBOL": "SUI"
+    },
+    "USDC": {
+      "ADDRESS": "0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN",
+      "DECIMALS": 6,
+      "SYMBOL": "USDC"
+    },
+    "USDT": {
+      "ADDRESS": "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN",
+      "DECIMALS": 6,
+      "SYMBOL": "USDT"
+    }
+  },
+  "TOKEN_PAIRS": [
+    {
+      "TOKEN_A": "SUI",
+      "TOKEN_B": "USDC",
+      "ENABLED": true
+    },
+    {
+      "TOKEN_A": "SUI",
+      "TOKEN_B": "USDT",
+      "ENABLED": true
+    },
+    {
+      "TOKEN_A": "USDC",
+      "TOKEN_B": "USDT",
+      "ENABLED": true
+    }
+  ]
+}

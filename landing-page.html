@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hatch - Flash Loan Protocol on Sui | Early LP Program</title>
+    <meta name="description" content="Provide liquidity to Hatch flash loan protocol and earn 80-90% of fees. Projected APY: 300%+. No impermanent loss.">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .hero {
+            text-align: center;
+            padding: 60px 20px;
+            color: white;
+        }
+
+        .hero h1 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            font-weight: 800;
+        }
+
+        .hero .subtitle {
+            font-size: 1.5rem;
+            margin-bottom: 30px;
+            opacity: 0.95;
+        }
+
+        .cta-button {
+            display: inline-block;
+            padding: 15px 40px;
+            background: white;
+            color: #667eea;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin: 10px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .cta-button.secondary {
+            background: transparent;
+            border: 2px solid white;
+            color: white;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 40px 0;
+        }
+
+        .stat-card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            color: white;
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+
+        .content {
+            background: white;
+            border-radius: 16px;
+            padding: 60px 40px;
+            margin: 40px 0;
+        }
+
+        .section {
+            margin-bottom: 60px;
+        }
+
+        .section h2 {
+            font-size: 2rem;
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        .feature {
+            padding: 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            transition: border-color 0.3s;
+        }
+
+        .feature:hover {
+            border-color: #667eea;
+        }
+
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .feature h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .comparison-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+
+        .comparison-table tr.highlight {
+            background: #f0f4ff;
+            font-weight: 600;
+        }
+
+        .process {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .step {
+            flex: 1;
+            min-width: 200px;
+            padding: 30px 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .step-number {
+            width: 50px;
+            height: 50px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin: 0 auto 15px;
+        }
+
+        .faq {
+            margin-top: 30px;
+        }
+
+        .faq-item {
+            margin-bottom: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .faq-question {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .risk-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .risk-box h3 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: white;
+        }
+
+        footer a {
+            color: white;
+            text-decoration: underline;
+            margin: 0 10px;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .hero .subtitle {
+                font-size: 1.2rem;
+            }
+
+            .content {
+                padding: 30px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="hero">
+            <h1>Hatch Flash Loan Protocol</h1>
+            <p class="subtitle">Earn 80-90% of flash loan fees as an early liquidity provider</p>
+            <div>
+                <a href="#become-lp" class="cta-button">Become an Early LP</a>
+                <a href="https://github.com/yourusername/hatch" class="cta-button secondary" target="_blank">View on GitHub</a>
+            </div>
+
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number">300%+</div>
+                    <div class="stat-label">Projected APY</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">90%</div>
+                    <div class="stat-label">Early LP Fee Share</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">0%</div>
+                    <div class="stat-label">Impermanent Loss</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">0</div>
+                    <div class="stat-label">Lock Period</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="section">
+                <h2>What is Hatch?</h2>
+                <p>Hatch is a flash loan protocol built natively on Sui. Flash loans are uncollateralized loans that must be borrowed and repaid in a single transaction. They're used for arbitrage, liquidations, and capital-efficient DeFi operations.</p>
+                <p style="margin-top: 15px;">On Ethereum, protocols like Aave process <strong>$50M+ daily</strong> in flash loans. Sui currently has no flash loan infrastructure - until now.</p>
+            </div>
+
+            <div class="section">
+                <h2>Why Provide Liquidity?</h2>
+                <div class="features">
+                    <div class="feature">
+                        <div class="feature-icon">💰</div>
+                        <h3>High Returns</h3>
+                        <p>Earn 80-90% of all flash loan fees. Projected APY: 300%+ depending on volume.</p>
+                    </div>
+                    <div class="feature">
+                        <div class="feature-icon">🔒</div>
+                        <h3>No IL</h3>
+                        <p>Single-asset pools mean no impermanent loss. Your SUI stays SUI.</p>
+                    </div>
+                    <div class="feature">
+                        <div class="feature-icon">⚡</div>
+                        <h3>No Defaults</h3>
+                        <p>Flash loans are atomic. If not repaid, the entire transaction reverts.</p>
+                    </div>
+                    <div class="feature">
+                        <div class="feature-icon">🚪</div>
+                        <h3>Withdraw Anytime</h3>
+                        <p>No lock periods. Withdraw your liquidity whenever you want.</p>
+                    </div>
+                    <div class="feature">
+                        <div class="feature-icon">📈</div>
+                        <h3>Passive Income</h3>
+                        <p>Set and forget. Fees accumulate automatically in real-time.</p>
+                    </div>
+                    <div class="feature">
+                        <div class="feature-icon">🌟</div>
+                        <h3>Early Bonus</h3>
+                        <p>First $50K liquidity gets 90% of fees. Limited time offer.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Expected Returns</h2>
+                <p>Returns depend on flash loan volume. Here are projected scenarios:</p>
+
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Your Investment</th>
+                            <th>Daily Volume</th>
+                            <th>Monthly Fees</th>
+                            <th>Monthly Return</th>
+                            <th>APY</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>$10,000</td>
+                            <td>$500K</td>
+                            <td>$6,000</td>
+                            <td>60%</td>
+                            <td>720%</td>
+                        </tr>
+                        <tr class="highlight">
+                            <td>$10,000</td>
+                            <td>$1M</td>
+                            <td>$12,000</td>
+                            <td>120%</td>
+                            <td>1440%</td>
+                        </tr>
+                        <tr>
+                            <td>$50,000</td>
+                            <td>$500K</td>
+                            <td>$6,750</td>
+                            <td>13.5%</td>
+                            <td>162%</td>
+                        </tr>
+                        <tr class="highlight">
+                            <td>$50,000</td>
+                            <td>$1M</td>
+                            <td>$13,500</td>
+                            <td>27%</td>
+                            <td>324%</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <p style="margin-top: 20px;"><em>Assumes 80-90% LP fee share for early participants. Numbers shown are for 100% pool ownership. Fees split proportionally with other LPs.</em></p>
+            </div>
+
+            <div class="section">
+                <h2>Comparison with Other DeFi Options</h2>
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Option</th>
+                            <th>APY</th>
+                            <th>IL Risk</th>
+                            <th>Default Risk</th>
+                            <th>Lock Period</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Staking SUI</td>
+                            <td>3-5%</td>
+                            <td>None</td>
+                            <td>Low</td>
+                            <td>Epochs</td>
+                        </tr>
+                        <tr>
+                            <td>DEX LP (Stables)</td>
+                            <td>10-20%</td>
+                            <td>Low</td>
+                            <td>None</td>
+                            <td>None</td>
+                        </tr>
+                        <tr>
+                            <td>DEX LP (Volatile)</td>
+                            <td>50-100%</td>
+                            <td>High</td>
+                            <td>None</td>
+                            <td>None</td>
+                        </tr>
+                        <tr>
+                            <td>Lending Protocols</td>
+                            <td>8-15%</td>
+                            <td>None</td>
+                            <td>Medium</td>
+                            <td>None</td>
+                        </tr>
+                        <tr class="highlight">
+                            <td><strong>Hatch Flash Loans</strong></td>
+                            <td><strong>300%+</strong></td>
+                            <td><strong>None</strong></td>
+                            <td><strong>None</strong></td>
+                            <td><strong>None</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="section" id="become-lp">
+                <h2>How to Become an LP</h2>
+                <div class="process">
+                    <div class="step">
+                        <div class="step-number">1</div>
+                        <h3>Review Code</h3>
+                        <p>Check out the open source code on GitHub. Ask questions in Discord.</p>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">2</div>
+                        <h3>Test on Testnet</h3>
+                        <p>Try adding liquidity on testnet to understand the process.</p>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">3</div>
+                        <h3>Register Interest</h3>
+                        <p>Email or DM us to reserve your early LP spot.</p>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">4</div>
+                        <h3>Provide Liquidity</h3>
+                        <p>Add liquidity when mainnet launches and start earning fees immediately.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Early LP Program</h2>
+                <p><strong>Limited to first $100K liquidity:</strong></p>
+                <ul style="margin: 20px 0 20px 30px;">
+                    <li>First $50K: <strong>90% fee share</strong></li>
+                    <li>Next $50K: <strong>80% fee share</strong></li>
+                    <li>After $100K: <strong>70% fee share</strong></li>
+                </ul>
+                <p>After the early program ends, LP share reduces to 60%. <strong>First movers get the best terms.</strong></p>
+            </div>
+
+            <div class="risk-box">
+                <h3>Risk Disclosure</h3>
+                <p><strong>Smart contract risk:</strong> All DeFi protocols carry smart contract risk. While our code is open source and will be audited, bugs may exist.</p>
+                <p><strong>Volume risk:</strong> Returns depend on flash loan volume. Actual volumes may be lower than projected.</p>
+                <p><strong>Platform risk:</strong> Sui network issues could affect operations.</p>
+                <p style="margin-top: 10px;"><strong>Mitigation:</strong> Start with a small amount, monitor regularly, withdraw if needed. Never invest more than you can afford to lose.</p>
+            </div>
+
+            <div class="section">
+                <h2>FAQ</h2>
+                <div class="faq">
+                    <div class="faq-item">
+                        <div class="faq-question">Q: What's the minimum investment?</div>
+                        <div>A: No minimum, but gas costs make smaller amounts less efficient. We recommend $1,000+.</div>
+                    </div>
+                    <div class="faq-item">
+                        <div class="faq-question">Q: What tokens can I provide?</div>
+                        <div>A: Starting with SUI, USDC, and USDT. More assets will be added based on demand.</div>
+                    </div>
+                    <div class="faq-item">
+                        <div class="faq-question">Q: When do I get paid?</div>
+                        <div>A: Fees accumulate in real-time. Claim whenever you want, or let them compound.</div>
+                    </div>
+                    <div class="faq-item">
+                        <div class="faq-question">Q: Can I withdraw early?</div>
+                        <div>A: Yes! No lock period. Withdraw your liquidity anytime.</div>
+                    </div>
+                    <div class="faq-item">
+                        <div class="faq-question">Q: Has the code been audited?</div>
+                        <div>A: Audit is scheduled after raising initial LP commitments. Code is open source for community review.</div>
+                    </div>
+                    <div class="faq-item">
+                        <div class="faq-question">Q: What if a flash loan defaults?</div>
+                        <div>A: Impossible. Flash loans must repay in the same transaction or the entire transaction reverts. Zero default risk.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section" style="text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 60px 40px; border-radius: 16px; color: white; margin-top: 60px;">
+                <h2 style="color: white; margin-bottom: 20px;">Ready to Earn High APY?</h2>
+                <p style="font-size: 1.2rem; margin-bottom: 30px; opacity: 0.95;">Join as an early LP and secure the best fee share</p>
+                <a href="mailto:your@email.com?subject=Early%20LP%20Interest" class="cta-button">Register Your Interest</a>
+                <p style="margin-top: 20px; opacity: 0.9;">Or reach out on <a href="https://twitter.com/yourhandle" style="color: white; text-decoration: underline;">Twitter</a> or <a href="https://discord.gg/yourserver" style="color: white; text-decoration: underline;">Discord</a></p>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; 2024 Hatch Protocol. All rights reserved.</p>
+        <div style="margin-top: 15px;">
+            <a href="https://github.com/yourusername/hatch">GitHub</a>
+            <a href="https://docs.hatch.protocol">Docs</a>
+            <a href="https://twitter.com/yourhandle">Twitter</a>
+            <a href="https://discord.gg/yourserver">Discord</a>
+        </div>
+        <p style="margin-top: 20px; font-size: 0.9rem; opacity: 0.8;">Built on Sui | Open Source | Community Driven</p>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,150 @@
+# GitLab CI/CD Configuration for Hatch
+
+stages:
+  - test
+  - build
+  - deploy-testnet
+  - deploy-mainnet
+
+variables:
+  BUN_VERSION: "latest"
+
+# Test stage
+test:move:
+  stage: test
+  image: rust:latest
+  script:
+    - cargo install --locked --git https://github.com/MystenLabs/sui.git --branch mainnet sui
+    - cd move
+    - sui move build
+    - sui move test --verbose
+  only:
+    - main
+    - develop
+    - merge_requests
+
+test:typescript:
+  stage: test
+  image: oven/bun:latest
+  script:
+    - bun install
+    - bun test
+    - bun run typecheck
+    - bun run lint
+  only:
+    - main
+    - develop
+    - merge_requests
+
+security:audit:
+  stage: test
+  image: oven/bun:latest
+  script:
+    - bun install
+    - bun audit
+  allow_failure: true
+  only:
+    - main
+    - develop
+    - merge_requests
+
+# Build stage
+build:contracts:
+  stage: build
+  image: rust:latest
+  script:
+    - cargo install --locked --git https://github.com/MystenLabs/sui.git --branch mainnet sui
+    - cd move
+    - sui move build
+  artifacts:
+    paths:
+      - move/build/
+    expire_in: 1 day
+  only:
+    - main
+    - develop
+
+# Testnet deployment
+deploy:testnet:
+  stage: deploy-testnet
+  image: oven/bun:latest
+  environment:
+    name: testnet
+  before_script:
+    - apt-get update && apt-get install -y cargo
+    - cargo install --locked --git https://github.com/MystenLabs/sui.git --branch mainnet sui
+    - bun install
+  script:
+    - export NETWORK=testnet
+    - bun run scripts/pre-deployment-check.ts testnet
+    - bun run scripts/deploy.ts testnet
+    - bun run scripts/verify-deployment.ts testnet
+    - bun run scripts/create-all-pools.ts testnet || true
+    - bun run scripts/health-check.ts testnet
+  artifacts:
+    paths:
+      - deployments/testnet.json
+      - deployments/testnet-pools.json
+    expire_in: 30 days
+  only:
+    - develop
+  when: manual
+
+# Mainnet deployment
+deploy:mainnet:
+  stage: deploy-mainnet
+  image: oven/bun:latest
+  environment:
+    name: mainnet
+    url: https://suivision.xyz
+  before_script:
+    - apt-get update && apt-get install -y cargo
+    - cargo install --locked --git https://github.com/MystenLabs/sui.git --branch mainnet sui
+    - bun install
+  script:
+    - export NETWORK=mainnet
+    # Pre-deployment validation
+    - bun run scripts/pre-deployment-check.ts mainnet
+    # Backup existing deployment
+    - |
+      if [ -f "deployments/mainnet.json" ]; then
+        cp deployments/mainnet.json "deployments/mainnet.$(date +%s).backup.json"
+      fi
+    # Deploy
+    - bun run scripts/deploy.ts mainnet
+    - bun run scripts/verify-deployment.ts mainnet
+    - bun run scripts/health-check.ts mainnet
+    # Create tag
+    - git tag -a "mainnet-$(date +%Y%m%d-%H%M%S)" -m "Mainnet deployment"
+  artifacts:
+    paths:
+      - deployments/mainnet.json
+      - deployments/mainnet.*.backup.json
+    expire_in: 365 days
+  only:
+    - main
+  when: manual
+
+# Mainnet pool creation
+create:pools:mainnet:
+  stage: deploy-mainnet
+  image: oven/bun:latest
+  environment:
+    name: mainnet
+  needs:
+    - deploy:mainnet
+  before_script:
+    - apt-get update && apt-get install -y cargo
+    - cargo install --locked --git https://github.com/MystenLabs/sui.git --branch mainnet sui
+    - bun install
+  script:
+    - export NETWORK=mainnet
+    - bun run scripts/create-all-pools.ts mainnet
+    - bun run scripts/list-pools.ts mainnet
+  artifacts:
+    paths:
+      - deployments/mainnet-pools.json
+    expire_in: 365 days
+  only:
+    - main
+  when: manual

@@ -1,0 +1,12 @@
+[
+  {
+    "coinType": "0x2::sui::SUI",
+    "initialLiquidity": "1000000000000",
+    "description": "SUI native token pool"
+  },
+  {
+    "coinType": "0x...::usdc::USDC",
+    "initialLiquidity": "100000000000",
+    "description": "USDC stablecoin pool - primary liquidity"
+  }
+]

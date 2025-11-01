@@ -1,0 +1,17 @@
+# TortoiseOS Project Rules
+
+## Package Manager
+- Always use Bun: `bun install`, `bun add`, `bunx`
+- Never suggest npm, yarn, or pnpm
+
+## Stack
+- Bun runtime
+- Sui blockchain
+- TypeScript strict mode
+- Next.js 14
+- Magic UI components
+
+## Commands
+- Use `bun run <script>` for package scripts
+- Use `bunx <command>` instead of npx
+- Use `task move:build` for Sui Move contracts

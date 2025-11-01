@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+bun.lockb
+
+# Build outputs
+.next/
+dist/
+build/
+*.log
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sui
+build/
+.sui/
+
+# Docker
+.docker/

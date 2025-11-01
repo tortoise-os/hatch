@@ -1,0 +1,72 @@
+# TortoiseOS Project - AI Assistant Instructions
+
+## Package Manager: BUN ONLY
+
+**CRITICAL**: This project uses Bun as its package manager and runtime.
+
+### Required Commands:
+- ✅ `bun install` (NOT npm install)
+- ✅ `bun add <package>` (NOT npm install)
+- ✅ `bun remove <package>` (NOT npm uninstall)
+- ✅ `bunx <command>` (NOT npx)
+- ✅ `bun run <script>` (NOT npm run)
+- ✅ `bun test` (NOT npm test)
+- ✅ `bun <file.ts>` (direct TypeScript execution)
+
+### ❌ NEVER Use:
+- npm install
+- npm i
+- npm run
+- npx
+- yarn
+- pnpm
+
+### Project Stack:
+- **Runtime**: Bun >= 1.1.0
+- **Framework**: Next.js 14
+- **API**: Express with Bun
+- **Blockchain**: Sui Move
+- **UI**: Magic UI + Tailwind CSS
+- **Containers**: Docker Compose
+- **Testing**: Playwright + @tortoiseos/terrapin
+
+### Sui-Specific Guidelines:
+- Use `task move:build` for Move contract compilation
+- Use `task sui:init` for Sui setup
+- All Sui commands run in Docker container
+- Test wallet: Use unsafe burner wallet in dev mode
+
+### Code Style:
+- TypeScript strict mode enabled
+- Use async/await (Bun has top-level await)
+- Prefer Bun APIs over Node.js when available
+- Use workspace protocol: "workspace:*" for local packages
+
+### Commands Reference:
+```bash
+# Development
+bun run dev              # Start dev server
+
+# Building
+bun run build            # Build all apps
+
+# Testing
+bun test                 # Run unit tests
+bun run test:e2e        # Run E2E tests
+
+# Sui/Move
+task move:build          # Compile Move contracts
+task sui:init            # Initialize Sui
+
+# Docker
+docker compose up -d     # Start services
+docker compose down      # Stop services
+```
+
+### When suggesting installations:
+Always use: `bun add <package>`
+Dev dependencies: `bun add -D <package>`
+Global tools: `bunx <tool>` (no installation needed!)
+
+---
+🐢 **TortoiseOS** - Slow, steady, and bun-powered!

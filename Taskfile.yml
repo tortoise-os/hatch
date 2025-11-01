@@ -1,0 +1,510 @@
+version: '3'
+
+vars:
+  PACKAGE_PATH: move
+  NETWORK: testnet
+
+tasks:
+  # ===== Development =====
+
+  dev:
+    desc: Start all development services
+    cmds:
+      - bun run dev
+
+  dev:web:
+    desc: Start web app only
+    cmds:
+      - bun run --filter './apps/web' dev
+
+  dev:api:
+    desc: Start API server only
+    cmds:
+      - bun run --filter './apps/api' dev
+
+  dev:bot:
+    desc: Start arbitrage bot
+    cmds:
+      - bun run --filter './apps/bot' dev
+
+  # ===== Building =====
+
+  build:
+    desc: Build all packages
+    cmds:
+      - bun run build
+
+  build:web:
+    desc: Build web app
+    cmds:
+      - bun run --filter './apps/web' build
+
+  build:api:
+    desc: Build API
+    cmds:
+      - bun run --filter './apps/api' build
+
+  # ===== Testing =====
+
+  test:
+    desc: Run all tests
+    cmds:
+      - task: test:move
+      - bun test
+
+  test:move:
+    desc: Test Move contracts
+    dir: "{{.PACKAGE_PATH}}"
+    cmds:
+      - sui move test
+
+  test:unit:
+    desc: Run unit tests
+    cmds:
+      - bun test
+
+  test:e2e:
+    desc: Run E2E tests
+    cmds:
+      - bun run test:e2e
+
+  # ===== Move/Sui Commands =====
+
+  move:build:
+    desc: Build Move contracts
+    dir: "{{.PACKAGE_PATH}}"
+    cmds:
+      - sui move build
+
+  move:test:
+    desc: Test Move contracts
+    dir: "{{.PACKAGE_PATH}}"
+    cmds:
+      - sui move test
+
+  move:test:verbose:
+    desc: Test Move contracts with verbose output
+    dir: "{{.PACKAGE_PATH}}"
+    cmds:
+      - sui move test --verbose
+
+  move:test:specific:
+    desc: Test specific Move module
+    dir: "{{.PACKAGE_PATH}}"
+    cmds:
+      - sui move test {{.CLI_ARGS}}
+
+  move:coverage:
+    desc: Generate test coverage for Move contracts
+    dir: "{{.PACKAGE_PATH}}"
+    cmds:
+      - sui move test --coverage
+      - sui move coverage summary
+
+  # ===== Deployment =====
+
+  sui:init:
+    desc: Initialize Sui client
+    cmds:
+      - sui client active-env
+
+  sui:publish:
+    desc: Publish Move contracts to active network
+    dir: "{{.PACKAGE_PATH}}"
+    cmds:
+      - sui client publish --gas-budget 100000000
+
+  sui:publish:testnet:
+    desc: Publish Move contracts to testnet
+    dir: "{{.PACKAGE_PATH}}"
+    cmds:
+      - sui client switch --env testnet
+      - sui client publish --gas-budget 100000000
+
+  sui:publish:mainnet:
+    desc: Publish Move contracts to mainnet
+    dir: "{{.PACKAGE_PATH}}"
+    cmds:
+      - sui client switch --env mainnet
+      - sui client publish --gas-budget 100000000
+
+  # ===== Comprehensive Deployment Workflows =====
+
+  deploy:check:
+    desc: Run pre-deployment checks
+    cmds:
+      - bun run scripts/pre-deployment-check.ts
+
+  deploy:testnet:
+    desc: Full deployment to testnet with verification
+    cmds:
+      - task: deploy:check
+      - bun run scripts/deploy.ts testnet
+      - task: deploy:verify
+      - echo "Testnet deployment complete"
+
+  deploy:mainnet:
+    desc: Full deployment to mainnet with verification
+    cmds:
+      - echo "WARNING - Deploying to MAINNET"
+      - echo "Press Ctrl+C within 5 seconds to cancel..."
+      - sleep 5
+      - task: deploy:check
+      - bun run scripts/deploy.ts mainnet
+      - task: deploy:verify
+      - echo "Mainnet deployment complete"
+
+  deploy:verify:
+    desc: Verify deployed contracts
+    cmds:
+      - bun run scripts/verify-deployment.ts
+
+  deploy:status:
+    desc: Check deployment status
+    cmds:
+      - bun run scripts/deployment-status.ts
+
+  deploy:rollback:
+    desc: Rollback to previous deployment
+    cmds:
+      - bun run scripts/rollback-deployment.ts
+
+  deploy:health:
+    desc: Run health check on deployed system
+    cmds:
+      - bun run scripts/health-check.ts
+
+  # ===== Pool Management =====
+
+  pool:create:
+    desc: Create flash loan pool
+    cmds:
+      - bun run scripts/create-flash-pool.ts {{.CLI_ARGS}}
+
+  pool:create:all:
+    desc: Create all configured flash loan pools
+    cmds:
+      - bun run scripts/create-all-pools.ts
+
+  pool:add-liquidity:
+    desc: Add liquidity to flash pool
+    cmds:
+      - bun run scripts/add-liquidity.ts {{.CLI_ARGS}}
+
+  pool:info:
+    desc: Get pool information
+    cmds:
+      - bun run scripts/pool-info.ts {{.CLI_ARGS}}
+
+  pool:list:
+    desc: List all pools
+    cmds:
+      - bun run scripts/list-pools.ts
+
+  # ===== Post-Deployment Setup =====
+
+  setup:testnet:
+    desc: Complete testnet setup (deploy + pools)
+    cmds:
+      - task: deploy:testnet
+      - task: pool:create:all
+      - echo "Testnet setup complete"
+
+  setup:mainnet:
+    desc: Complete mainnet setup (deploy + pools)
+    cmds:
+      - echo "WARNING - Setting up MAINNET"
+      - echo "Press Ctrl+C within 5 seconds to cancel..."
+      - sleep 5
+      - task: deploy:mainnet
+      - task: pool:create:all
+      - echo "Mainnet setup complete"
+
+  # ===== Deployment Configuration =====
+
+  config:generate:
+    desc: Generate deployment configuration
+    cmds:
+      - bun run scripts/generate-config.ts
+
+  config:validate:
+    desc: Validate deployment configuration
+    cmds:
+      - bun run scripts/validate-config.ts
+
+  config:show:
+    desc: Show current deployment configuration
+    cmds:
+      - bun run scripts/show-config.ts
+
+  # ===== Flash Loan Tasks =====
+
+  flash:create-pool:
+    desc: Create flash loan pool
+    cmds:
+      - bun run scripts/create-flash-pool.ts
+
+  flash:add-liquidity:
+    desc: Add liquidity to flash pool
+    cmds:
+      - bun run scripts/add-flash-liquidity.ts
+
+  flash:test-borrow:
+    desc: Test flash loan borrow/repay
+    cmds:
+      - bun run scripts/test-flash-borrow.ts
+
+  # ===== Arbitrage Bot Tasks =====
+
+  bot:start:
+    desc: Start arbitrage bot
+    cmds:
+      - bun run --filter './apps/bot' start
+
+  bot:dev:
+    desc: Start bot in development mode
+    cmds:
+      - bun run --filter './apps/bot' dev
+
+  bot:test:
+    desc: Test bot functionality
+    cmds:
+      - bun run scripts/test-bot.ts
+
+  bot:simulate:
+    desc: Run bot in simulation mode
+    cmds:
+      - bun run scripts/simulate-arbitrage.ts
+
+  # ===== Database Tasks =====
+
+  db:setup:
+    desc: Set up database
+    cmds:
+      - docker compose up -d postgres redis
+      - bun run scripts/db-setup.ts
+
+  db:migrate:
+    desc: Run database migrations
+    cmds:
+      - bun run scripts/db-migrate.ts
+
+  db:seed:
+    desc: Seed database with test data
+    cmds:
+      - bun run scripts/db-seed.ts
+
+  db:reset:
+    desc: Reset database
+    cmds:
+      - bun run scripts/db-reset.ts
+
+  # ===== Monitoring & Heimdahl =====
+
+  heimdahl:install:
+    desc: Install Heimdahl CLI
+    cmds:
+      - npm install -g @heimdahl/cli
+
+  heimdahl:monitor:
+    desc: Monitor swap events via Heimdahl
+    cmds:
+      - bun run scripts/heimdahl-monitor.ts
+
+  heimdahl:test:
+    desc: Test Heimdahl integration
+    cmds:
+      - bun run scripts/test-heimdahl.ts
+
+  # ===== Monitoring =====
+
+  monitor:pools:
+    desc: Monitor flash pools in real-time
+    cmds:
+      - bun run scripts/monitor-pools.ts
+
+  monitor:health:
+    desc: Continuous health monitoring
+    cmds:
+      - watch -n 60 bun run scripts/health-check.ts
+
+  # ===== Linting & Formatting =====
+
+  lint:
+    desc: Lint all code
+    cmds:
+      - bun run lint
+
+  format:
+    desc: Format code with Prettier
+    cmds:
+      - bunx prettier --write .
+
+  typecheck:
+    desc: Type check TypeScript
+    cmds:
+      - bun run typecheck
+
+  # ===== Docker =====
+
+  docker:up:
+    desc: Start Docker services
+    cmds:
+      - docker compose up -d
+
+  docker:down:
+    desc: Stop Docker services
+    cmds:
+      - docker compose down
+
+  docker:logs:
+    desc: View Docker logs
+    cmds:
+      - docker compose logs -f
+
+  docker:build:
+    desc: Build Docker images
+    cmds:
+      - docker compose build
+
+  # ===== Utilities =====
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf node_modules/.cache
+      - rm -rf apps/*/dist
+      - rm -rf apps/*/.next
+      - rm -rf move/build
+
+  install:
+    desc: Install dependencies
+    cmds:
+      - bun install
+
+  update:
+    desc: Update dependencies
+    cmds:
+      - bun update
+
+  # ===== Scripts =====
+
+  script:
+    desc: "Run a script (usage: task script -- script-name.ts)"
+    cmds:
+      - bun run scripts/{{.CLI_ARGS}}
+
+  # ===== Integration Tests =====
+
+  integration:flash:
+    desc: Run flash loan integration tests
+    cmds:
+      - task: move:build
+      - bun run scripts/test-flash-integration.ts
+
+  integration:arb:
+    desc: Run arbitrage integration tests
+    cmds:
+      - task: move:build
+      - bun run scripts/test-arb-integration.ts
+
+  integration:all:
+    desc: Run all integration tests
+    cmds:
+      - task: integration:flash
+      - task: integration:arb
+
+  integration:deployment:
+    desc: Run deployment workflow integration tests
+    cmds:
+      - bun run scripts/test-deployment-workflow.ts
+
+  # ===== Performance =====
+
+  benchmark:flash:
+    desc: Benchmark flash loan performance
+    cmds:
+      - bun run scripts/benchmark-flash.ts
+
+  benchmark:arb:
+    desc: Benchmark arbitrage performance
+    cmds:
+      - bun run scripts/benchmark-arb.ts
+
+  # ===== Documentation =====
+
+  docs:serve:
+    desc: Serve documentation locally
+    cmds:
+      - bunx serve ./docs
+
+  docs:build:
+    desc: Build documentation
+    cmds:
+      - bun run scripts/build-docs.ts
+
+  # ===== Security =====
+
+  audit:
+    desc: Run security audit
+    cmds:
+      - bun audit
+      - task: move:test
+
+  security:check:
+    desc: Check for security vulnerabilities
+    cmds:
+      - bun audit
+      - bunx better-npm-audit audit
+
+  # ===== Help & Quick Start =====
+
+  help:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  quick-start:
+    desc: Interactive quick start guide
+    cmds:
+      - bun run scripts/quick-start.ts
+
+  tokens:testnet:
+    desc: Show testnet token addresses
+    cmds:
+      - bun run scripts/get-testnet-tokens.ts
+
+  # ===== Financial Analysis =====
+
+  finance:calculate:
+    desc: Calculate costs and revenue projections
+    cmds:
+      - bun run scripts/calculate-financials.ts {{.CLI_ARGS}}
+
+  finance:breakeven:
+    desc: Calculate break-even point
+    cmds:
+      - bun run scripts/calculate-breakeven.ts {{.CLI_ARGS}}
+
+  finance:project:
+    desc: Project revenue growth
+    cmds:
+      - bun run scripts/project-revenue.ts {{.CLI_ARGS}}
+
+  # ===== LP Tools =====
+
+  lp:calculate:
+    desc: Calculate LP returns
+    cmds:
+      - bun run scripts/calculate-lp-returns.ts {{.CLI_ARGS}}
+
+  lp:landing:
+    desc: Serve LP landing page locally
+    cmds:
+      - bunx serve . --single
+
+  lp:materials:
+    desc: Open LP outreach materials
+    cmds:
+      - open OUTREACH_TEMPLATES.md
+      - open ZERO_CAPITAL_LAUNCH.md

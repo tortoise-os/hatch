@@ -1,0 +1,20 @@
+[package]
+name = "hatch"
+version = "0.1.0"
+edition = "2024.beta"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+
+# Uncomment when Carapace is published
+# Carapace = { local = "../../carapace/move" }
+
+[addresses]
+hatch = "0x0"
+
+# Carapace address (update after deployment)
+# carapace = "0x..."
+
+[dev-dependencies]
+
+[dev-addresses]
