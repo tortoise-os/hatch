@@ -1,5 +1,9 @@
 # Deploy Hatch with $100 Budget
 
+> **⚠️ DEPRECATED**: This document has been consolidated into the main launch strategies.
+> - See [docs/launch-strategies/ZERO_CAPITAL_QUICKSTART.md](../launch-strategies/ZERO_CAPITAL_QUICKSTART.md)
+> - See [docs/financial/](../financial/) for financial models
+
 **Your budget**: $100
 **Timeline**: Deploy testnet today, mainnet in 3-7 days
 **Strategy**: Free hosting + attract external LPs (you provide $0 liquidity)

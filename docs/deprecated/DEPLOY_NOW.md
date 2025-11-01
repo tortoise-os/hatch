@@ -1,5 +1,9 @@
 # Deploy NOW - Complete Action Plan
 
+> **⚠️ DEPRECATED**: This document has been superseded by organized launch strategies.
+> - See [docs/launch-strategies/](../launch-strategies/) for current launch options
+> - See [docs/guides/DEPLOYMENT.md](../guides/DEPLOYMENT.md) for deployment guide
+
 **Your situation**: $100 budget, no liquidity capital
 **Your goal**: Deploy testnet today, find LPs, launch mainnet in 7 days
 **Time needed today**: 2-3 hours

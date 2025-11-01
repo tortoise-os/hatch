@@ -1,5 +1,10 @@
 # 🚀 START HERE - Your Path to Production
 
+> **⚠️ DEPRECATED**: This document has been superseded by the new documentation structure.
+> - For quick start: See main [README.md](../../README.md)
+> - For launch strategies: See [docs/launch-strategies/](../launch-strategies/)
+> - For deployment: See [docs/guides/DEPLOYMENT.md](../guides/DEPLOYMENT.md)
+
 **Welcome!** Everything is ready. This guide gets you to production launch ASAP.
 
 ---

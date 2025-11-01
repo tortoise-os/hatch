@@ -340,16 +340,17 @@ Report vulnerabilities to: security@tortoiseos.dev
 
 ## 📚 Documentation
 
-| Document | Description |
-|----------|-------------|
-| [LAUNCH_CHECKLIST.md](./LAUNCH_CHECKLIST.md) | Fast-track guide to production (7 days) ⭐ |
-| [DEPLOYMENT.md](./DEPLOYMENT.md) | Complete deployment guide (696 lines) |
-| [MONITORING.md](./MONITORING.md) | Production monitoring setup (553 lines) |
-| [RUNBOOK.md](./RUNBOOK.md) | Operations runbook for on-call |
-| [PRODUCTION_READINESS.md](./PRODUCTION_READINESS.md) | Readiness report & checklist |
-| [DEX_INTEGRATION.md](./DEX_INTEGRATION.md) | DEX adapter integration guide |
-| [FLASHLOAN.md](./FLASHLOAN.md) | Flash loan mechanics & usage |
-| [ROADMAP.md](./ROADMAP.md) | Development roadmap |
+**[📖 Full Documentation Index](./docs/README.md)** - Complete guide to all documentation
+
+### Quick Links
+
+| Category | Key Documents |
+|----------|---------------|
+| **🚀 Getting Started** | [ROADMAP.md](./ROADMAP.md) - Development roadmap |
+| **📦 Deployment** | [Deployment Guide](./docs/guides/DEPLOYMENT.md) - Complete deployment instructions |
+| **🎯 Launch Strategies** | [Launch Checklist](./docs/launch-strategies/LAUNCH_CHECKLIST.md) - 7-day launch plan<br/>[Zero Capital Launch](./docs/launch-strategies/ZERO_CAPITAL_QUICKSTART.md) - Launch with external LPs |
+| **⚙️ Operations** | [Runbook](./docs/operations/RUNBOOK.md) - Day-to-day operations<br/>[Monitoring](./docs/operations/MONITORING.md) - Production monitoring |
+| **💰 Financial** | [Financial Summary](./docs/financial/FINANCIAL_SUMMARY.md) - Revenue projections<br/>[LP Outreach](./docs/financial/OUTREACH_TEMPLATES.md) - Marketing templates |
 
 **External Resources:**
 - [TortoiseOS Main Repo](https://github.com/tortoise-os/bun-move)

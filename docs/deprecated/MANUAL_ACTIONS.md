@@ -1,6 +1,10 @@
 # 📋 Manual Actions Required
 
-This document lists all actions **YOU** need to take to complete production deployment. 
+> **⚠️ DEPRECATED**: This checklist has been integrated into:
+> - [docs/launch-strategies/LAUNCH_CHECKLIST.md](../launch-strategies/LAUNCH_CHECKLIST.md)
+> - [docs/guides/DEPLOYMENT.md](../guides/DEPLOYMENT.md)
+
+This document lists all actions **YOU** need to take to complete production deployment.
 Everything else is automated.
 
 ---
