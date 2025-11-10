@@ -5,7 +5,6 @@
 /// Defines the common interface for interacting with different DEXs on Sui
 /// This allows the arbitrage executor to work with multiple DEXs uniformly
 module hatch::dex_adapter {
-    use std::vector;
 
     // ===== Structs =====
 
@@ -87,7 +86,7 @@ module hatch::dex_adapter {
             min_amount_out,
             max_amount_in,
             deadline,
-            route: vector::empty(),
+            route: std::vector::empty(),
         }
     }
 
@@ -106,7 +105,7 @@ module hatch::dex_adapter {
 
     /// Add route to swap params
     public fun add_route(params: &mut SwapParams, route: SwapRoute) {
-        vector::push_back(&mut params.route, route);
+        std::vector::push_back(&mut params.route, route);
     }
 
     /// Create quote result
@@ -128,11 +127,11 @@ module hatch::dex_adapter {
 
     /// Check if route is empty
     public fun is_direct_swap(params: &SwapParams): bool {
-        vector::is_empty(&params.route)
+        std::vector::is_empty(&params.route)
     }
 
     /// Get route count
     public fun route_count(params: &SwapParams): u64 {
-        vector::length(&params.route)
+        std::vector::length(&params.route)
     }
 }

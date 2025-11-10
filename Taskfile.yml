@@ -133,13 +133,13 @@ tasks:
   deploy:check:
     desc: Run pre-deployment checks
     cmds:
-      - bun run scripts/pre-deployment-check.ts
+      - bun run tooling/deployment/pre-deployment-check.ts
 
   deploy:testnet:
     desc: Full deployment to testnet with verification
     cmds:
       - task: deploy:check
-      - bun run scripts/deploy.ts testnet
+      - bun run tooling/deployment/deploy.ts testnet
       - task: deploy:verify
       - echo "Testnet deployment complete"
 
@@ -150,56 +150,56 @@ tasks:
       - echo "Press Ctrl+C within 5 seconds to cancel..."
       - sleep 5
       - task: deploy:check
-      - bun run scripts/deploy.ts mainnet
+      - bun run tooling/deployment/deploy.ts mainnet
       - task: deploy:verify
       - echo "Mainnet deployment complete"
 
   deploy:verify:
     desc: Verify deployed contracts
     cmds:
-      - bun run scripts/verify-deployment.ts
+      - bun run tooling/deployment/verify-deployment.ts
 
   deploy:status:
     desc: Check deployment status
     cmds:
-      - bun run scripts/deployment-status.ts
+      - bun run tooling/deployment/deployment-status.ts
 
   deploy:rollback:
     desc: Rollback to previous deployment
     cmds:
-      - bun run scripts/rollback-deployment.ts
+      - bun run tooling/deployment/rollback-deployment.ts
 
   deploy:health:
     desc: Run health check on deployed system
     cmds:
-      - bun run scripts/health-check.ts
+      - bun run tooling/monitoring/health-check.ts
 
   # ===== Pool Management =====
 
   pool:create:
     desc: Create flash loan pool
     cmds:
-      - bun run scripts/create-flash-pool.ts {{.CLI_ARGS}}
+      - bun run tooling/pool/create-flash-pool.ts {{.CLI_ARGS}}
 
   pool:create:all:
     desc: Create all configured flash loan pools
     cmds:
-      - bun run scripts/create-all-pools.ts
+      - bun run tooling/pool/create-all-pools.ts
 
   pool:add-liquidity:
     desc: Add liquidity to flash pool
     cmds:
-      - bun run scripts/add-liquidity.ts {{.CLI_ARGS}}
+      - bun run tooling/pool/add-liquidity.ts {{.CLI_ARGS}}
 
   pool:info:
     desc: Get pool information
     cmds:
-      - bun run scripts/pool-info.ts {{.CLI_ARGS}}
+      - bun run tooling/pool/pool-info.ts {{.CLI_ARGS}}
 
   pool:list:
     desc: List all pools
     cmds:
-      - bun run scripts/list-pools.ts
+      - bun run tooling/pool/list-pools.ts
 
   # ===== Post-Deployment Setup =====
 
@@ -225,34 +225,34 @@ tasks:
   config:generate:
     desc: Generate deployment configuration
     cmds:
-      - bun run scripts/generate-config.ts
+      - bun run tooling/scripts/generate-config.ts
 
   config:validate:
     desc: Validate deployment configuration
     cmds:
-      - bun run scripts/validate-config.ts
+      - bun run tooling/scripts/validate-config.ts
 
   config:show:
     desc: Show current deployment configuration
     cmds:
-      - bun run scripts/show-config.ts
+      - bun run tooling/scripts/show-config.ts
 
   # ===== Flash Loan Tasks =====
 
   flash:create-pool:
     desc: Create flash loan pool
     cmds:
-      - bun run scripts/create-flash-pool.ts
+      - bun run tooling/pool/create-flash-pool.ts
 
   flash:add-liquidity:
     desc: Add liquidity to flash pool
     cmds:
-      - bun run scripts/add-flash-liquidity.ts
+      - bun run tooling/pool/add-flash-liquidity.ts
 
   flash:test-borrow:
     desc: Test flash loan borrow/repay
     cmds:
-      - bun run scripts/test-flash-borrow.ts
+      - bun run tooling/pool/test-flash-borrow.ts
 
   # ===== Arbitrage Bot Tasks =====
 
@@ -269,12 +269,12 @@ tasks:
   bot:test:
     desc: Test bot functionality
     cmds:
-      - bun run scripts/test-bot.ts
+      - bun run tooling/bot/test-bot.ts
 
   bot:simulate:
     desc: Run bot in simulation mode
     cmds:
-      - bun run scripts/simulate-arbitrage.ts
+      - bun run tooling/bot/simulate-arbitrage.ts
 
   # ===== Database Tasks =====
 
@@ -282,22 +282,22 @@ tasks:
     desc: Set up database
     cmds:
       - docker compose up -d postgres redis
-      - bun run scripts/db-setup.ts
+      - bun run tooling/db/db-setup.ts
 
   db:migrate:
     desc: Run database migrations
     cmds:
-      - bun run scripts/db-migrate.ts
+      - bun run tooling/db/db-migrate.ts
 
   db:seed:
     desc: Seed database with test data
     cmds:
-      - bun run scripts/db-seed.ts
+      - bun run tooling/db/db-seed.ts
 
   db:reset:
     desc: Reset database
     cmds:
-      - bun run scripts/db-reset.ts
+      - bun run tooling/db/db-reset.ts
 
   # ===== Monitoring & Heimdahl =====
 
@@ -309,24 +309,24 @@ tasks:
   heimdahl:monitor:
     desc: Monitor swap events via Heimdahl
     cmds:
-      - bun run scripts/heimdahl-monitor.ts
+      - bun run tooling/monitoring/heimdahl-monitor.ts
 
   heimdahl:test:
     desc: Test Heimdahl integration
     cmds:
-      - bun run scripts/test-heimdahl.ts
+      - bun run tooling/monitoring/test-heimdahl.ts
 
   # ===== Monitoring =====
 
   monitor:pools:
     desc: Monitor flash pools in real-time
     cmds:
-      - bun run scripts/monitor-pools.ts
+      - bun run tooling/pool/monitor-pools.ts
 
   monitor:health:
     desc: Continuous health monitoring
     cmds:
-      - watch -n 60 bun run scripts/health-check.ts
+      - watch -n 60 bun run tooling/monitoring/health-check.ts
 
   # ===== Linting & Formatting =====
 
@@ -392,7 +392,7 @@ tasks:
   script:
     desc: "Run a script (usage: task script -- script-name.ts)"
     cmds:
-      - bun run scripts/{{.CLI_ARGS}}
+      - bun run tooling/{{.CLI_ARGS}}
 
   # ===== Integration Tests =====
 
@@ -400,13 +400,13 @@ tasks:
     desc: Run flash loan integration tests
     cmds:
       - task: move:build
-      - bun run scripts/test-flash-integration.ts
+      - bun run tooling/tests/test-flash-integration.ts
 
   integration:arb:
     desc: Run arbitrage integration tests
     cmds:
       - task: move:build
-      - bun run scripts/test-arb-integration.ts
+      - bun run tooling/tests/test-arb-integration.ts
 
   integration:all:
     desc: Run all integration tests
@@ -417,19 +417,19 @@ tasks:
   integration:deployment:
     desc: Run deployment workflow integration tests
     cmds:
-      - bun run scripts/test-deployment-workflow.ts
+      - bun run tooling/deployment/test-deployment-workflow.ts
 
   # ===== Performance =====
 
   benchmark:flash:
     desc: Benchmark flash loan performance
     cmds:
-      - bun run scripts/benchmark-flash.ts
+      - bun run tooling/benchmarks/benchmark-flash.ts
 
   benchmark:arb:
     desc: Benchmark arbitrage performance
     cmds:
-      - bun run scripts/benchmark-arb.ts
+      - bun run tooling/benchmarks/benchmark-arb.ts
 
   # ===== Documentation =====
 
@@ -441,7 +441,7 @@ tasks:
   docs:build:
     desc: Build documentation
     cmds:
-      - bun run scripts/build-docs.ts
+      - bun run tooling/docs/build-docs.ts
 
   # ===== Security =====
 
@@ -467,36 +467,36 @@ tasks:
   quick-start:
     desc: Interactive quick start guide
     cmds:
-      - bun run scripts/quick-start.ts
+      - bun run tooling/scripts/quick-start.ts
 
   tokens:testnet:
     desc: Show testnet token addresses
     cmds:
-      - bun run scripts/get-testnet-tokens.ts
+      - bun run tooling/scripts/get-testnet-tokens.ts
 
   # ===== Financial Analysis =====
 
   finance:calculate:
     desc: Calculate costs and revenue projections
     cmds:
-      - bun run scripts/calculate-financials.ts {{.CLI_ARGS}}
+      - bun run tooling/financial/calculate-financials.ts {{.CLI_ARGS}}
 
   finance:breakeven:
     desc: Calculate break-even point
     cmds:
-      - bun run scripts/calculate-breakeven.ts {{.CLI_ARGS}}
+      - bun run tooling/financial/calculate-breakeven.ts {{.CLI_ARGS}}
 
   finance:project:
     desc: Project revenue growth
     cmds:
-      - bun run scripts/project-revenue.ts {{.CLI_ARGS}}
+      - bun run tooling/financial/project-revenue.ts {{.CLI_ARGS}}
 
   # ===== LP Tools =====
 
   lp:calculate:
     desc: Calculate LP returns
     cmds:
-      - bun run scripts/calculate-lp-returns.ts {{.CLI_ARGS}}
+      - bun run tooling/financial/calculate-lp-returns.ts {{.CLI_ARGS}}
 
   lp:landing:
     desc: Serve LP landing page locally

@@ -3,7 +3,9 @@
     "allow": [
       "Bash(mkdir:*)",
       "Bash(mv:*)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(find tooling -name \"*.ts\" -type f -exec sh -c 'ln -sf \"\"../$1\"\" \"\"scripts/$(basename \"\"$1\"\")\"\"' _ {} ;)",
+      "Bash(task move:build)"
     ],
     "deny": [],
     "ask": []

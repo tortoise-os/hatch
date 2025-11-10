@@ -6,13 +6,10 @@
 /// https://turbos.finance
 module hatch::turbos_adapter {
     use sui::coin::{Self, Coin};
-    use sui::event;
     use hatch::dex_adapter::{Self, SwapParams, QuoteResult};
 
     // ===== Constants =====
 
-    /// Turbos fee (0.3% standard)
-    const TURBOS_FEE_BPS: u64 = 30; // 0.3%
     const BPS_DENOMINATOR: u64 = 10000;
 
     /// DEX identifier
@@ -33,17 +30,10 @@ module hatch::turbos_adapter {
         k_last: u128,
     }
 
-    /// Swap event
-    public struct SwapExecuted has copy, drop {
-        pool_id: address,
-        amount_in: u64,
-        amount_out: u64,
-        is_x_to_y: bool,
-    }
-
     // ===== Public Functions =====
 
     /// Get quote for swapping token X to Y using constant product formula
+    #[allow(unused_type_parameter)]
     public fun get_quote_x_to_y<X, Y>(
         reserve_x: u64,
         reserve_y: u64,
@@ -78,6 +68,7 @@ module hatch::turbos_adapter {
     }
 
     /// Get quote for swapping token Y to X
+    #[allow(unused_type_parameter)]
     public fun get_quote_y_to_x<X, Y>(
         reserve_x: u64,
         reserve_y: u64,
@@ -203,6 +194,7 @@ module hatch::turbos_adapter {
     // ===== Test Helpers =====
 
     #[test_only]
+    #[allow(unused_type_parameter)]
     public fun create_test_pool<X, Y>(
         reserve_x: u64,
         reserve_y: u64,

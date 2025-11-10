@@ -6,16 +6,9 @@
 /// https://cetus.zone
 module hatch::cetus_adapter {
     use sui::coin::{Self, Coin};
-    use sui::event;
     use hatch::dex_adapter::{Self, SwapParams, QuoteResult};
 
     // ===== Constants =====
-
-    /// Cetus fee tiers (in basis points)
-    const FEE_TIER_100: u64 = 100;   // 0.01%
-    const FEE_TIER_500: u64 = 500;   // 0.05%
-    const FEE_TIER_3000: u64 = 3000; // 0.3%
-    const FEE_TIER_10000: u64 = 10000; // 1%
 
     const BPS_DENOMINATOR: u64 = 10000;
 
@@ -27,10 +20,6 @@ module hatch::cetus_adapter {
     /// Cetus pool metadata (simplified)
     public struct CetusPool has key, store {
         id: sui::object::UID,
-        /// Token X type name
-        token_x: vector<u8>,
-        /// Token Y type name
-        token_y: vector<u8>,
         /// Fee tier
         fee_tier: u64,
         /// Current sqrt price
@@ -39,24 +28,17 @@ module hatch::cetus_adapter {
         liquidity: u128,
     }
 
-    /// Swap event
-    public struct SwapExecuted has copy, drop {
-        pool_id: address,
-        amount_in: u64,
-        amount_out: u64,
-        is_x_to_y: bool,
-    }
-
     // ===== Public Functions =====
 
     /// Get quote for swapping token X to Y
     /// NOTE: This is a simplified implementation
     /// In production, this would call actual Cetus pool contracts
+    #[allow(unused_type_parameter)]
     public fun get_quote_x_to_y<X, Y>(
         amount_in: u64,
         fee_tier: u64,
         sqrt_price: u128,
-        liquidity: u128,
+        _liquidity: u128,
     ): QuoteResult {
         // Simplified constant product formula for quote
         // In production: use Cetus's actual pricing formula (concentrated liquidity)
@@ -66,8 +48,7 @@ module hatch::cetus_adapter {
         // Simplified calculation - real Cetus uses tick math
         let amount_out = calculate_amount_out(
             amount_in_after_fee,
-            sqrt_price,
-            liquidity
+            sqrt_price
         );
 
         dex_adapter::create_quote(
@@ -79,11 +60,12 @@ module hatch::cetus_adapter {
     }
 
     /// Get quote for swapping token Y to X
+    #[allow(unused_type_parameter)]
     public fun get_quote_y_to_x<X, Y>(
         amount_in: u64,
         fee_tier: u64,
         sqrt_price: u128,
-        liquidity: u128,
+        _liquidity: u128,
     ): QuoteResult {
         // Similar to x_to_y but inverted
         let fee = (amount_in * fee_tier) / BPS_DENOMINATOR;
@@ -91,8 +73,7 @@ module hatch::cetus_adapter {
 
         let amount_out = calculate_amount_out(
             amount_in_after_fee,
-            sqrt_price,
-            liquidity
+            sqrt_price
         );
 
         dex_adapter::create_quote(
@@ -141,7 +122,6 @@ module hatch::cetus_adapter {
     fun calculate_amount_out(
         amount_in: u64,
         sqrt_price: u128,
-        liquidity: u128,
     ): u64 {
         // Extremely simplified calculation
         // Real implementation would use tick math and sqrt price formulas
@@ -180,14 +160,13 @@ module hatch::cetus_adapter {
     // ===== Test Helpers =====
 
     #[test_only]
+    #[allow(unused_type_parameter)]
     public fun create_test_pool<X, Y>(
         fee_tier: u64,
         ctx: &mut sui::tx_context::TxContext
     ): CetusPool {
         CetusPool {
             id: sui::object::new(ctx),
-            token_x: b"X",
-            token_y: b"Y",
             fee_tier,
             sqrt_price: 1000000, // 1.0 in Q64.64 format (simplified)
             liquidity: 1000000000, // 1000 units
@@ -196,7 +175,7 @@ module hatch::cetus_adapter {
 
     #[test_only]
     public fun destroy_test_pool(pool: CetusPool) {
-        let CetusPool { id, token_x: _, token_y: _, fee_tier: _, sqrt_price: _, liquidity: _ } = pool;
+        let CetusPool { id, fee_tier: _, sqrt_price: _, liquidity: _ } = pool;
         sui::object::delete(id);
     }
 }

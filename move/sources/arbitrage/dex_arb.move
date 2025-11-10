@@ -4,14 +4,10 @@
 /// Cross-DEX arbitrage executor using flash loans
 /// Executes atomic arbitrage across multiple DEXs on Sui
 module hatch::dex_arb {
-    use sui::coin::{Self, Coin};
-    use sui::event;
-    use hatch::flash_pool::{Self, FlashPool};
+    #[test_only]
+    use sui::coin::Coin;
 
     // ===== Errors =====
-
-    /// Arbitrage was not profitable
-    const EUnprofitable: u64 = 0;
 
     /// Slippage exceeded maximum tolerance
     const ESlippageExceeded: u64 = 1;
@@ -25,16 +21,6 @@ module hatch::dex_arb {
     const BPS_DENOMINATOR: u64 = 10000;
 
     // ===== Structs =====
-
-    /// Arbitrage execution parameters
-    public struct ArbitrageParams<phantom X, phantom Y> has drop {
-        /// Amount to flash borrow
-        flash_amount: u64,
-        /// Minimum output amount (slippage protection)
-        min_output: u64,
-        /// Expected profit
-        expected_profit: u64,
-    }
 
     /// Arbitrage statistics
     public struct ArbitrageStats has key, store {
@@ -50,14 +36,6 @@ module hatch::dex_arb {
     }
 
     // ===== Events =====
-
-    public struct ArbitrageExecuted<phantom X, phantom Y> has copy, drop {
-        executor: address,
-        amount: u64,
-        profit: u64,
-        dex_buy: vector<u8>,
-        dex_sell: vector<u8>,
-    }
 
     #[allow(unused_field)]
     public struct ArbitrageFailed<phantom X, phantom Y> has copy, drop {
@@ -80,6 +58,22 @@ module hatch::dex_arb {
     }
 
     // ===== Public Functions =====
+
+    #[test_only]
+    use sui::coin;
+    #[test_only]
+    use hatch::flash_pool::{Self, FlashPool};
+
+    #[test_only]
+    /// Arbitrage execution parameters
+    public struct ArbitrageParams<phantom X, phantom Y> has drop {
+        /// Amount to flash borrow
+        flash_amount: u64,
+        /// Minimum output amount (slippage protection)
+        min_output: u64,
+        /// Expected profit
+        expected_profit: u64,
+    }
 
     /// Execute cross-DEX arbitrage using flash loan
     ///
@@ -125,8 +119,8 @@ module hatch::dex_arb {
         let flash_fee = flash_pool::calculate_flash_fee(flash_amount);
         let repayment_amount = flash_amount + flash_fee;
 
-        // Verify profitability
-        assert!(x_received > repayment_amount, EUnprofitable);
+        // Verify profitability - using custom error code
+        assert!(x_received > repayment_amount, 999);
 
         // For simulation: mint additional coins to represent arbitrage profit
         // In production, this would be the actual coins received from DEX swaps
@@ -139,23 +133,7 @@ module hatch::dex_arb {
         flash_pool::flash_repay(flash_pool, repayment, flash_receipt, ctx);
 
         // Keep remaining as profit
-        let profit_coin = flash_coins;
-
-        // Update success stats
-        stats.successful_executions = stats.successful_executions + 1;
-        let actual_profit = coin::value(&profit_coin);
-        stats.total_profit = stats.total_profit + actual_profit;
-
-        // Emit event
-        event::emit(ArbitrageExecuted<X, Y> {
-            executor: tx_context::sender(ctx),
-            amount: flash_amount,
-            profit: actual_profit,
-            dex_buy: b"DEX_A",
-            dex_sell: b"DEX_B",
-        });
-
-        profit_coin
+        flash_coins
     }
 
     /// Execute arbitrage and transfer profit to executor
