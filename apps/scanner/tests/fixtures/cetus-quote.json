@@ -1,0 +1,23 @@
+{
+  "code": 200,
+  "msg": "Success",
+  "data": {
+    "request_id": "fixture-cetus",
+    "amount_in": 1000000000,
+    "amount_out": 728353,
+    "paths": [
+      {
+        "id": "0xcetus-pool",
+        "provider": "CETUS",
+        "from": "0x2::sui::SUI",
+        "target": "0xcoin::coin::COIN"
+      },
+      {
+        "id": "0xbluefin-pool",
+        "provider": "BLUEFIN",
+        "from": "0xcoin::coin::COIN",
+        "target": "0xusdc::usdc::USDC"
+      }
+    ]
+  }
+}

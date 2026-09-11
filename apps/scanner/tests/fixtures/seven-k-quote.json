@@ -1,0 +1,25 @@
+{
+  "swapAmountWithDecimal": "1000000000",
+  "returnAmountWithDecimal": "728742",
+  "tokenIn": "0x2::sui::SUI",
+  "tokenOut": "0xusdc::usdc::USDC",
+  "routes": [
+    {
+      "hops": [
+        {
+          "poolId": "0xcetus-pool",
+          "tokenIn": "0x2::sui::SUI",
+          "tokenOut": "0xcoin::coin::COIN",
+          "pool": { "type": "cetus" }
+        },
+        {
+          "poolId": "0xbluefin-pool",
+          "tokenIn": "0xcoin::coin::COIN",
+          "tokenOut": "0xusdc::usdc::USDC",
+          "pool": { "type": "bluefin" }
+        }
+      ]
+    }
+  ],
+  "swaps": []
+}

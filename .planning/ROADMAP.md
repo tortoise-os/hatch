@@ -2,7 +2,7 @@
 
 ## v0.1 Read-only quote scanner
 
-- [ ] Phase 01: Build normalized quote adapters, round-trip scorer, and one-shot CLI.
+- [x] Phase 01: Build normalized quote adapters, round-trip scorer, and one-shot CLI.
 
 ## Later milestones
 
