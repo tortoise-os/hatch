@@ -19,9 +19,9 @@ Hatch must never call level 1 an opportunity. Current implementation can reach l
 
 ## Auto research
 
-Add `POST /api/research`. One bounded request sweeps 0.1, 0.25, 0.5, 1, 2, 5, 10, and 25 SUI by default. Maximum 12 amounts prevents unbounded upstream traffic. Each size receives one discovery scan. Sizes with a qualifying route receive two additional confirmation scans.
+Add `POST /api/research`. One bounded request sweeps 0.1, 0.25, 0.5, 1, 2, 5, 10, and 25 SUI across USDC, USDT, CETUS, DEEP, and WAL by default. Maximum 12 amounts and eight markets prevent unbounded upstream traffic. Each market/size pair receives one discovery scan. Pairs with a qualifying route receive two additional confirmation scans.
 
-Results group candidates by amount, quote-provider direction, and ordered forward/reverse pool IDs. A group is promoted only when it appears profitably in at least two samples. Report conservative `worst_net_profit`, `best_net_profit`, confirmation count, sample count, maximum observed quote skew, and representative route evidence. Keep every discovery report in normal in-memory history.
+Results group candidates by quote market, amount, quote-provider direction, and ordered forward/reverse pool IDs. A group is promoted only when it appears profitably in at least two samples. Report conservative `worst_net_profit`, `best_net_profit`, confirmation count, sample count, maximum observed quote skew, and representative route evidence. Keep every discovery report in normal in-memory history.
 
 Default gas reserve changes from 0.01 SUI to 0.002 SUI. This remains an operator reserve, not measured transaction gas. Cetus `data.gas` is recorded as provider metadata but cannot replace full PTB simulation. Cetus router API version changes to current documented `v=1999999`.
 
@@ -37,9 +37,18 @@ Research lock prevents overlapping scans/research. Partial amount failures remai
 
 Rust tests cover classification gates, stable fingerprint grouping, confirmation threshold, request bounds, and route/gas parsing. Existing scanner tests, Clippy, formatting, frontend type checking, and production build must pass. Live verification must inspect a returned research artifact and browser text, not only HTTP status.
 
+## Live verification snapshot
+
+One 2026-09-11 mainnet sweep evaluated 232 routes with zero provider failures and promoted three repeated fingerprints:
+
+- SUI/USDT at 10 SUI: 2/3 confirmations, +0.005027072 SUI worst net, 266 ms maximum quote skew.
+- SUI/CETUS at 5 SUI: 2/3 confirmations, +0.000510268 SUI worst net, 274 ms maximum quote skew.
+- SUI/CETUS at 0.1 SUI: 3/3 confirmations, +0.000039977 SUI worst net, 268 ms maximum quote skew.
+
+Later sweeps found zero confirmed opportunities. This disappearance is expected market behavior and validates keeping losing routes separate, requiring repeated fingerprints, and refusing to present old quote signals as current profit.
+
 ## Sources
 
 - [Cetus Aggregator V3 reference](https://github.com/CetusProtocol/cetus-skills/blob/main/skills/cetus-aggregator/reference.md)
 - [7K Aggregator overview](https://docs.7k.ag/7k-aggregator/overview)
 - [Sui transaction simulation](https://sdk.mystenlabs.com/sui/clients/executing)
-

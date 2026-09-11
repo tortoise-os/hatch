@@ -175,6 +175,7 @@ fn parse_response(
         amount_out,
         quote_id: Some(request_id),
         route,
+        estimated_gas_cost: None,
         observed_at_ms,
         latency_ms,
     })

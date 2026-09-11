@@ -20,6 +20,8 @@ pub struct Quote {
     pub amount_out: u128,
     pub quote_id: Option<String>,
     pub route: Vec<RouteHop>,
+    #[serde(default, with = "option_u128_string")]
+    pub estimated_gas_cost: Option<u128>,
     pub observed_at_ms: u64,
     pub latency_ms: u64,
 }
@@ -49,6 +51,8 @@ pub struct Opportunity {
     pub net_profit: i128,
     #[serde(with = "i128_string")]
     pub net_profit_bps: i128,
+    pub quote_skew_ms: u64,
+    pub rejection_reasons: Vec<String>,
     pub meets_threshold: bool,
 }
 
@@ -100,6 +104,21 @@ pub mod u128_string {
     }
 }
 
+pub mod u128_vec_string {
+    use super::*;
+
+    pub fn serialize<S>(values: &[u128], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        values
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .serialize(serializer)
+    }
+}
+
 pub mod i128_string {
     use super::*;
 
@@ -116,5 +135,25 @@ pub mod i128_string {
     {
         let value = String::deserialize(deserializer)?;
         value.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+pub mod option_u128_string {
+    use super::*;
+
+    pub fn serialize<S>(value: &Option<u128>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        value.map(|inner| inner.to_string()).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u128>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Option::<String>::deserialize(deserializer)?
+            .map(|value| value.parse().map_err(serde::de::Error::custom))
+            .transpose()
     }
 }

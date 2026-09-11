@@ -16,6 +16,7 @@ export type Quote = {
   amount_out: string;
   quote_id: string | null;
   route: RouteHop[];
+  estimated_gas_cost: string | null;
   observed_at_ms: number;
   latency_ms: number;
 };
@@ -30,6 +31,8 @@ export type Candidate = {
   gas_cost: string;
   net_profit: string;
   net_profit_bps: string;
+  quote_skew_ms: number;
+  rejection_reasons: string[];
   meets_threshold: boolean;
 };
 
@@ -62,14 +65,43 @@ export type Health = {
 };
 
 export type ScanInput = {
+  quote_coin?: string;
   amount_in: string;
   gas_cost: string;
   min_profit_bps: string;
+  max_quote_skew_ms: number;
   timeout_ms: number;
   retries: number;
   cetus_sources: string[];
   seven_k_sources: string[];
 };
+
+export type ConfirmedOpportunity = {
+  validation_tier: "quote_confirmed";
+  route_fingerprint: string;
+  amount_in: string;
+  quote_coin: string;
+  confirmations: number;
+  samples: number;
+  worst_net_profit: string;
+  best_net_profit: string;
+  max_quote_skew_ms: number;
+  representative: Candidate;
+};
+
+export type ResearchReport = {
+  schema_version: number;
+  observed_at_ms: number;
+  amounts_tested: string[];
+  markets_tested: string[];
+  routes_evaluated: number;
+  provider_failures: number;
+  confirmation_runs: number;
+  opportunities: ConfirmedOpportunity[];
+  reports: ScanReport[];
+};
+
+export type ResearchInput = Omit<ScanInput, "amount_in" | "quote_coin"> & { amounts?: string[]; markets?: string[] };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, { cache: "no-store", ...init });
@@ -86,6 +118,12 @@ export const scannerApi = {
   history: () => request<{ reports: ScanReport[]; retention: string }>("/api/scans?limit=20"),
   scan: (input: ScanInput) =>
     request<ScanReport>("/api/scans", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  research: (input: ResearchInput) =>
+    request<ResearchReport>("/api/research", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),

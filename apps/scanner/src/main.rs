@@ -30,11 +30,14 @@ struct Cli {
     #[arg(long, default_value_t = 1_000_000_000_u128)]
     amount: u128,
 
-    #[arg(long, default_value_t = 10_000_000_u128)]
+    #[arg(long, default_value_t = 2_000_000_u128)]
     gas_cost: u128,
 
-    #[arg(long, default_value_t = 0_i128)]
+    #[arg(long, default_value_t = 1_i128)]
     min_profit_bps: i128,
+
+    #[arg(long, default_value_t = 2_000_u64)]
+    max_quote_skew_ms: u64,
 
     #[arg(long, default_value_t = 5_000_u64)]
     timeout_ms: u64,
@@ -66,6 +69,7 @@ impl From<&Cli> for ScannerSettings {
             amount_in: cli.amount,
             gas_cost: cli.gas_cost,
             min_profit_bps: cli.min_profit_bps,
+            max_quote_skew_ms: cli.max_quote_skew_ms,
             timeout_ms: cli.timeout_ms,
             retries: cli.retries,
             cetus_endpoint: cli.cetus_endpoint.clone(),

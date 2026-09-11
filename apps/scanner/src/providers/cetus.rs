@@ -10,7 +10,7 @@ use crate::{
 use super::{AtomicValue, endpoint_url};
 
 pub const DEFAULT_ENDPOINT: &str = "https://api-sui.cetus.zone/router_v3";
-const SDK_VERSION: &str = "1010702";
+const SDK_VERSION: &str = "1999999";
 
 #[derive(Debug, Clone)]
 pub struct CetusProvider {
@@ -71,6 +71,7 @@ struct CetusData {
     request_id: Option<String>,
     amount_in: AtomicValue,
     amount_out: AtomicValue,
+    gas: Option<AtomicValue>,
     #[serde(default)]
     paths: Vec<CetusPath>,
 }
@@ -109,6 +110,11 @@ fn parse_response(
     })?;
     let amount_in = data.amount_in.parse("cetus", "amount_in")?;
     let amount_out = data.amount_out.parse("cetus", "amount_out")?;
+    let estimated_gas_cost = data
+        .gas
+        .as_ref()
+        .map(|gas| gas.parse("cetus", "gas"))
+        .transpose()?;
     if amount_out == 0 {
         return Err(ProviderError::new(
             "cetus",
@@ -148,6 +154,7 @@ fn parse_response(
         amount_out,
         quote_id: data.request_id,
         route,
+        estimated_gas_cost,
         observed_at_ms,
         latency_ms,
     })
@@ -171,6 +178,7 @@ mod tests {
         assert_eq!(quote.amount_out, 728_353);
         assert_eq!(quote.quote_id.as_deref(), Some("fixture-cetus"));
         assert_eq!(quote.route.len(), 2);
+        assert_eq!(quote.estimated_gas_cost, Some(35_000));
         assert_eq!(quote.route[0].venue, "cetus");
         assert_eq!(quote.route[1].venue, "bluefin");
         assert_eq!(quote.observed_at_ms, 123);

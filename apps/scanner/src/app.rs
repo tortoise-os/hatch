@@ -25,6 +25,7 @@ pub struct ScannerSettings {
     pub gas_cost: u128,
     #[serde(with = "crate::model::i128_string")]
     pub min_profit_bps: i128,
+    pub max_quote_skew_ms: u64,
     pub timeout_ms: u64,
     pub retries: u32,
     pub cetus_endpoint: String,
@@ -39,8 +40,9 @@ impl Default for ScannerSettings {
             base_coin: SUI.to_owned(),
             quote_coin: NATIVE_USDC.to_owned(),
             amount_in: 1_000_000_000,
-            gas_cost: 10_000_000,
-            min_profit_bps: 0,
+            gas_cost: 2_000_000,
+            min_profit_bps: 1,
+            max_quote_skew_ms: 2_000,
             timeout_ms: 5_000,
             retries: 1,
             cetus_endpoint: CETUS_ENDPOINT.to_owned(),
@@ -64,6 +66,9 @@ impl ScannerSettings {
         }
         if self.retries > 5 {
             return Err("retries must be between 0 and 5".to_owned());
+        }
+        if !(100..=10_000).contains(&self.max_quote_skew_ms) {
+            return Err("max_quote_skew_ms must be between 100 and 10000".to_owned());
         }
         if self.seven_k_sources.is_empty() {
             return Err("seven_k_sources must include at least one source".to_owned());
@@ -95,6 +100,7 @@ impl ScannerSettings {
                 amount_in: self.amount_in,
                 gas_cost: self.gas_cost,
                 min_profit_bps: self.min_profit_bps,
+                max_quote_skew_ms: self.max_quote_skew_ms,
                 retries: self.retries,
             },
         ))

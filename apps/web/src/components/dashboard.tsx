@@ -3,12 +3,13 @@
 import { AlertTriangle, ArrowRight, ChevronDown, Clock3, Gauge, Play, RefreshCw, Route, Server, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatAge, formatSui, scannerApi, shortId, type Candidate, type ScanInput, type ScanReport } from "@/lib/api";
+import { formatAge, formatSui, scannerApi, shortId, type Candidate, type ConfirmedOpportunity, type ResearchReport, type ScanInput, type ScanReport } from "@/lib/api";
 
 const defaults: ScanInput = {
   amount_in: "1000000000",
-  gas_cost: "10000000",
-  min_profit_bps: "0",
+  gas_cost: "2000000",
+  min_profit_bps: "1",
+  max_quote_skew_ms: 2000,
   timeout_ms: 5000,
   retries: 1,
   cetus_sources: [],
@@ -57,7 +58,7 @@ export function OverviewDashboard() {
       <div>
         <span className="eyebrow"><Sparkles size={14} /> Sui market intelligence</span>
         <h1>See signal before moving capital.</h1>
-        <p>Compare live Cetus and 7K round trips, subtract gas reserve, inspect every route. Observation only.</p>
+        <p>Compare live Cetus and 7K round trips, subtract gas reserve, inspect every evaluated route. Observation only.</p>
         <div className="actions">
           <Link className="button primary" href="/scanner">Open scanner <ArrowRight size={17} /></Link>
           <button className="button secondary" onClick={runScan} disabled={scanning}>{scanning ? <><RefreshCw className="spin" size={17} /> Scanning quotes…</> : <><Play size={17} /> Run scan</>}</button>
@@ -74,8 +75,8 @@ export function OverviewDashboard() {
     <section aria-labelledby="latest-scan">
       <div className="section-heading"><div><span className="eyebrow">Latest observation</span><h2 id="latest-scan">Scanner pulse</h2></div>{latest && <span className="timestamp"><Clock3 size={14} /> {new Date(latest.observed_at_ms).toLocaleTimeString()}</span>}</div>
       <div className="metrics-grid">
-        <Metric label="Candidates" value={latest?.candidates.length.toString() ?? "—"} note="Complete round trips" />
-        <Metric label="Qualifying" value={qualifying.toString()} note="Positive after reserve" tone={qualifying ? "good" : "neutral"} />
+        <Metric label="Evaluated" value={latest?.candidates.length.toString() ?? "—"} note="Complete round trips" />
+        <Metric label="Positive routes" value={qualifying.toString()} note="Needs repeat confirmation" tone={qualifying ? "good" : "neutral"} />
         <Metric label="Provider failures" value={latest?.failures.length.toString() ?? "—"} note="Partial results retained" tone={latest?.failures.length ? "warn" : "neutral"} />
         <Metric label="Scan age" value={latest ? formatAge(latest.observed_at_ms) : "—"} note="History lives in memory" />
       </div>
@@ -90,49 +91,113 @@ export function OverviewDashboard() {
 
 function ScanHistoryRow({ report }: { report: ScanReport }) {
   const top = best(report);
-  return <div className="scan-row"><span className="scan-time">{new Date(report.observed_at_ms).toLocaleTimeString()}</span><span>{report.candidates.length} routes</span><span>{report.failures.length} failures</span><strong className={top && BigInt(top.net_profit) > 0n ? "positive" : "negative"}>{top ? `${formatSui(top.net_profit)} SUI` : "No complete route"}</strong><span>{formatAge(report.observed_at_ms)}</span></div>;
+  return <div className="scan-row"><span className="scan-time">{new Date(report.observed_at_ms).toLocaleTimeString()}</span><span>{report.candidates.length} evaluated</span><span>{report.failures.length} failures</span><strong className={top && BigInt(top.net_profit) > 0n ? "positive" : "negative"}>{top ? `${formatSui(top.net_profit)} SUI` : "No complete route"}</strong><span>{formatAge(report.observed_at_ms)}</span></div>;
 }
 
-type Tab = "candidates" | "routes" | "failures" | "history";
+type Tab = "opportunities" | "evaluated" | "routes" | "failures" | "history";
 
 export function ScannerDashboard() {
   const { latest, setLatest, history, refresh, loading } = useScannerData();
   const [form, setForm] = useState(defaults);
-  const [tab, setTab] = useState<Tab>("candidates");
+  const [tab, setTab] = useState<Tab>("opportunities");
   const [scanning, setScanning] = useState(false);
+  const [researching, setResearching] = useState(false);
+  const [research, setResearch] = useState<ResearchReport | null>(null);
   const [error, setError] = useState("");
+  const evaluated = useMemo(
+    () => research ? research.reports.flatMap((report) => report.candidates) : latest?.candidates ?? [],
+    [latest, research],
+  );
 
   async function runScan() {
     setScanning(true); setError("");
-    try { const report = await scannerApi.scan(form); setLatest(report); await refresh(); setTab("candidates"); }
+    try { const report = await scannerApi.scan(form); setLatest(report); setResearch(null); await refresh(); setTab("evaluated"); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Scan failed."); }
     finally { setScanning(false); }
   }
 
+  async function runResearch() {
+    setResearching(true); setError("");
+    try {
+      const result = await scannerApi.research({
+        gas_cost: form.gas_cost,
+        min_profit_bps: form.min_profit_bps,
+        max_quote_skew_ms: form.max_quote_skew_ms,
+        timeout_ms: form.timeout_ms,
+        retries: form.retries,
+        cetus_sources: form.cetus_sources,
+        seven_k_sources: form.seven_k_sources,
+      });
+      setResearch(result);
+      setLatest(result.reports.at(-1) ?? null);
+      await refresh();
+      setTab("opportunities");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Research failed."); }
+    finally { setResearching(false); }
+  }
+
   return <div className="stack-lg">
-    <div className="page-heading"><div><span className="eyebrow"><Route size={14} /> Quote-surface scanner</span><h1>Round-trip evidence</h1><p>Compare SUI → USDC → SUI across aggregators. Values use atomic integer math.</p></div>{latest && <div className="latest-stamp"><span className="status-dot" /> Latest scan {formatAge(latest.observed_at_ms)}</div>}</div>
+    <div className="page-heading"><div><span className="eyebrow"><Route size={14} /> Quote-surface scanner</span><h1>Round-trip evidence</h1><p>Auto research sweeps SUI sizes across USDC, USDT, CETUS, DEEP, and WAL; rejects shared pools and stale quote pairs; then repeats positive routes. Quote-confirmed only.</p></div>{latest && <div className="latest-stamp"><span className="status-dot" /> Latest scan {formatAge(latest.observed_at_ms)}</div>}</div>
     {error && <div className="error-banner"><AlertTriangle size={18} /><div><strong>Scan did not complete</strong><span>{error} Previous evidence remains visible.</span></div></div>}
     <div className="scanner-layout">
       <aside className="control-panel" aria-label="Scan settings">
-        <div className="panel-title"><div><Server size={18} /><h2>Scan settings</h2></div><span>Bounded run</span></div>
-        <Field label="Input amount (MIST)" value={form.amount_in} onChange={(amount_in) => setForm({ ...form, amount_in })} help="1 SUI = 1,000,000,000 MIST" />
-        <Field label="Gas reserve (MIST)" value={form.gas_cost} onChange={(gas_cost) => setForm({ ...form, gas_cost })} />
+        <div className="panel-title"><div><Server size={18} /><h2>Research settings</h2></div><span>Read only</span></div>
+        <Field label="One-shot amount (MIST)" value={form.amount_in} onChange={(amount_in) => setForm({ ...form, amount_in })} help="Auto research uses 0.1–25 SUI across five liquid markets" />
+        <Field label="Gas reserve (MIST)" value={form.gas_cost} onChange={(gas_cost) => setForm({ ...form, gas_cost })} help="Applied to every round trip; not simulated gas" />
         <Field label="Minimum profit (bps)" value={form.min_profit_bps} onChange={(min_profit_bps) => setForm({ ...form, min_profit_bps })} />
+        <Field label="Maximum quote skew (ms)" value={String(form.max_quote_skew_ms)} onChange={(value) => setForm({ ...form, max_quote_skew_ms: Number(value) })} help="Rejects legs observed too far apart" />
         <div className="field-pair"><Field label="Timeout (ms)" value={String(form.timeout_ms)} onChange={(value) => setForm({ ...form, timeout_ms: Number(value) })} /><Field label="Retries" value={String(form.retries)} onChange={(value) => setForm({ ...form, retries: Number(value) })} /></div>
         <Field label="7K sources" value={form.seven_k_sources.join(", ")} onChange={(value) => setForm({ ...form, seven_k_sources: value.split(",").map((part) => part.trim()).filter(Boolean) })} help="Comma-separated venue names" />
-        <button className="button primary full" onClick={runScan} disabled={scanning}>{scanning ? <><RefreshCw className="spin" size={17} /> Scanning quotes…</> : <><Play size={17} /> Run scan</>}</button>
-        <p className="safety-note">No wallet connected. No transaction can be built or submitted.</p>
+        <button className="button primary full" onClick={runResearch} disabled={researching || scanning}>{researching ? <><RefreshCw className="spin" size={17} /> Researching sizes…</> : <><Sparkles size={17} /> Auto research</>}</button>
+        <button className="button secondary full" onClick={runScan} disabled={researching || scanning}>{scanning ? <><RefreshCw className="spin" size={17} /> Scanning quotes…</> : <><Play size={17} /> Run one scan</>}</button>
+        <p className="safety-note">No wallet, transaction build, simulation, signing, or submission. Opportunity means repeated quote evidence—not executable profit.</p>
       </aside>
       <section className="results-panel">
+        {research && <ResearchSummary report={research} />}
         <div className="tabs" role="tablist" aria-label="Scanner results">
-          {(["candidates", "routes", "failures", "history"] as Tab[]).map((item) => <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)}>{item}<span>{item === "candidates" ? latest?.candidates.length ?? 0 : item === "failures" ? latest?.failures.length ?? 0 : item === "history" ? history.length : ""}</span></button>)}
+          {(["opportunities", "evaluated", "routes", "failures", "history"] as Tab[]).map((item) => <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)}>{item}<span>{item === "opportunities" ? research?.opportunities.length ?? 0 : item === "evaluated" ? evaluated.length : item === "failures" ? research?.provider_failures ?? latest?.failures.length ?? 0 : item === "history" ? history.length : ""}</span></button>)}
         </div>
         <div className="tab-body" role="tabpanel">
-          {loading ? <div className="empty-state">Loading scanner evidence…</div> : !latest ? <div className="empty-state"><Gauge size={30} /><strong>No scan evidence yet</strong><span>Run first bounded scan to compare live quote surfaces.</span><button className="button primary" onClick={runScan}>Run first scan</button></div> : tab === "candidates" ? <CandidateList candidates={latest.candidates} /> : tab === "routes" ? <RouteList candidates={latest.candidates} /> : tab === "failures" ? <FailureList report={latest} /> : <div className="scan-list">{history.map((report) => <ScanHistoryRow key={report.observed_at_ms} report={report} />)}</div>}
+          {loading ? <div className="empty-state">Loading scanner evidence…</div> : tab === "opportunities" ? <OpportunityList research={research} onResearch={runResearch} /> : !latest ? <div className="empty-state"><Gauge size={30} /><strong>No scan evidence yet</strong><span>Run bounded auto research to compare live quote surfaces across sizes.</span><button className="button primary" onClick={runResearch}>Start auto research</button></div> : tab === "evaluated" ? <CandidateList candidates={evaluated} /> : tab === "routes" ? <RouteList candidates={evaluated} /> : tab === "failures" ? <ResearchFailureList research={research} latest={latest} /> : <div className="scan-list">{history.map((report) => <ScanHistoryRow key={report.observed_at_ms} report={report} />)}</div>}
         </div>
       </section>
     </div>
   </div>;
+}
+
+function ResearchSummary({ report }: { report: ResearchReport }) {
+  return <div className="research-summary" aria-label="Auto research summary">
+    <div><span>Sizes tested</span><strong>{report.amounts_tested.length}</strong></div>
+    <div><span>Markets tested</span><strong>{report.markets_tested.length}</strong></div>
+    <div><span>Routes evaluated</span><strong>{report.routes_evaluated}</strong></div>
+    <div><span>Quote confirmed</span><strong className={report.opportunities.length ? "positive" : ""}>{report.opportunities.length}</strong></div>
+  </div>;
+}
+
+function OpportunityList({ research, onResearch }: { research: ResearchReport | null; onResearch: () => void }) {
+  if (!research) return <div className="empty-state"><Sparkles size={30} /><strong>Confirmation required</strong><span>Run auto research. One quote pair never counts as opportunity.</span><button className="button primary" onClick={onResearch}>Start auto research</button></div>;
+  if (!research.opportunities.length) return <div className="empty-state"><Gauge size={30} /><strong>No quote-confirmed opportunity now</strong><span>{research.routes_evaluated} routes across {research.amounts_tested.length} sizes and {research.markets_tested.length} markets checked. Losing and rejected routes remain under Evaluated.</span><button className="button secondary" onClick={onResearch}>Research again</button></div>;
+  return <div className="candidate-list">{research.opportunities.map((opportunity, index) => <ConfirmedOpportunityRow key={`${opportunity.route_fingerprint}-${opportunity.amount_in}`} opportunity={opportunity} rank={index + 1} />)}</div>;
+}
+
+function ConfirmedOpportunityRow({ opportunity, rank }: { opportunity: ConfirmedOpportunity; rank: number }) {
+  const candidate = opportunity.representative;
+  return <details className="candidate confirmed"><summary><div className="rank">{rank}</div><div className="route-name"><strong>SUI/{coinSymbol(opportunity.quote_coin)} · {candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span className="validation-chip">QUOTE CONFIRMED · {opportunity.confirmations}/{opportunity.samples}</span></div><div className="candidate-stat"><span>Input</span><strong>{formatSui(opportunity.amount_in)} SUI</strong></div><div className="candidate-stat"><span>Worst net</span><strong className="positive">+{formatSui(opportunity.worst_net_profit)} SUI</strong></div><div className="bps"><strong>{candidate.net_profit_bps}</strong><span>bps</span></div><ChevronDown className="chevron" size={18} /></summary><div className="confirmation-evidence"><span>Best observed +{formatSui(opportunity.best_net_profit)} SUI</span><span>Max quote skew {opportunity.max_quote_skew_ms} ms</span><span>Fingerprint {opportunity.route_fingerprint}</span><strong>PTB simulation pending</strong></div><Evidence candidate={candidate} /></details>;
+}
+
+function coinSymbol(coinType: string) {
+  if (coinType.endsWith("::usdc::USDC")) return "USDC";
+  if (coinType.endsWith("::cetus::CETUS")) return "CETUS";
+  if (coinType.endsWith("::deep::DEEP")) return "DEEP";
+  if (coinType.endsWith("::wal::WAL")) return "WAL";
+  if (coinType.includes("c0600061")) return "USDT";
+  return shortId(coinType);
+}
+
+function ResearchFailureList({ research, latest }: { research: ResearchReport | null; latest: ScanReport }) {
+  const failures = research ? research.reports.flatMap((report) => report.failures) : latest.failures;
+  if (!failures.length) return <div className="empty-state good-state"><Sparkles size={28} /><strong>Providers returned cleanly</strong><span>No forward, reverse, decode, or scoring failures recorded.</span></div>;
+  return <div className="failure-list">{failures.map((failure, index) => <div className="failure" key={`${failure.provider}-${failure.stage}-${index}`}><AlertTriangle size={18} /><div><strong>{failure.provider} · {failure.stage}</strong><span>{failure.kind}{failure.retryable ? " · retryable" : ""}</span><p>{failure.message}</p></div></div>)}</div>;
 }
 
 function Field({ label, value, onChange, help }: { label: string; value: string; onChange: (value: string) => void; help?: string }) {
@@ -146,7 +211,7 @@ function CandidateList({ candidates }: { candidates: Candidate[] }) {
 }
 
 function Evidence({ candidate }: { candidate: Candidate }) {
-  return <div className="evidence"><div className="evidence-grid"><div><span>Gross profit</span><strong>{formatSui(candidate.gross_profit)} SUI</strong></div><div><span>Gas reserve</span><strong>{formatSui(candidate.gas_cost)} SUI</strong></div><div><span>Forward latency</span><strong>{candidate.forward.latency_ms} ms</strong></div><div><span>Reverse latency</span><strong>{candidate.reverse.latency_ms} ms</strong></div></div>{candidate.same_quote_provider && <div className="warning"><AlertTriangle size={15} /> Same quote provider used for both legs.</div>}{candidate.shared_pool_ids.length > 0 && <div className="warning"><AlertTriangle size={15} /> Shared liquidity: {candidate.shared_pool_ids.map(shortId).join(", ")}</div>}<HopGroup label="Forward" quote={candidate.forward} /><HopGroup label="Reverse" quote={candidate.reverse} /></div>;
+  return <div className="evidence"><div className="evidence-grid"><div><span>Gross profit</span><strong>{formatSui(candidate.gross_profit)} SUI</strong></div><div><span>Gas reserve</span><strong>{formatSui(candidate.gas_cost)} SUI</strong></div><div><span>Quote skew</span><strong>{candidate.quote_skew_ms} ms</strong></div><div><span>Provider gas hint</span><strong>{candidate.forward.estimated_gas_cost ? `${formatSui(candidate.forward.estimated_gas_cost)} SUI` : "Unavailable"}</strong></div><div><span>Forward latency</span><strong>{candidate.forward.latency_ms} ms</strong></div><div><span>Reverse latency</span><strong>{candidate.reverse.latency_ms} ms</strong></div></div>{candidate.same_quote_provider && <div className="warning"><AlertTriangle size={15} /> Same quote provider used for both legs.</div>}{candidate.shared_pool_ids.length > 0 && <div className="warning"><AlertTriangle size={15} /> Shared liquidity: {candidate.shared_pool_ids.map(shortId).join(", ")}</div>}{candidate.rejection_reasons.length > 0 && <div className="warning"><AlertTriangle size={15} /> Rejected: {candidate.rejection_reasons.join(", ").replaceAll("_", " ")}</div>}<HopGroup label="Forward" quote={candidate.forward} /><HopGroup label="Reverse" quote={candidate.reverse} /></div>;
 }
 
 function HopGroup({ label, quote }: { label: string; quote: Candidate["forward"] }) {
@@ -155,9 +220,4 @@ function HopGroup({ label, quote }: { label: string; quote: Candidate["forward"]
 
 function RouteList({ candidates }: { candidates: Candidate[] }) {
   return <div className="route-list">{candidates.flatMap((candidate, index) => [<HopGroup key={`f-${index}`} label={`Route ${index + 1} · Forward`} quote={candidate.forward} />, <HopGroup key={`r-${index}`} label={`Route ${index + 1} · Reverse`} quote={candidate.reverse} />])}</div>;
-}
-
-function FailureList({ report }: { report: ScanReport }) {
-  if (!report.failures.length) return <div className="empty-state good-state"><Sparkles size={28} /><strong>Providers returned cleanly</strong><span>No forward, reverse, decode, or scoring failures recorded.</span></div>;
-  return <div className="failure-list">{report.failures.map((failure, index) => <div className="failure" key={`${failure.provider}-${failure.stage}-${index}`}><AlertTriangle size={18} /><div><strong>{failure.provider} · {failure.stage}</strong><span>{failure.kind}{failure.retryable ? " · retryable" : ""}</span><p>{failure.message}</p></div></div>)}</div>;
 }

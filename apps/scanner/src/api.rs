@@ -1,4 +1,7 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::{BTreeSet, VecDeque},
+    sync::Arc,
+};
 
 use axum::{
     Json, Router,
@@ -11,7 +14,15 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Semaphore};
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::{ScanReport, app::ScannerSettings};
+use crate::{
+    ScanReport,
+    app::ScannerSettings,
+    http::now_ms,
+    research::{
+        CONFIRMATION_RUNS, DEFAULT_AMOUNTS, DEFAULT_MARKETS, MAX_AMOUNTS, MAX_MARKETS,
+        MIN_CONFIRMATIONS, ResearchReport, confirm_opportunities,
+    },
+};
 
 const HISTORY_CAP: usize = 100;
 
@@ -51,13 +62,23 @@ struct ConfigResponse {
 
 #[derive(Debug, Default, Deserialize)]
 pub struct ScanRequest {
+    pub quote_coin: Option<String>,
     pub amount_in: Option<String>,
     pub gas_cost: Option<String>,
     pub min_profit_bps: Option<String>,
+    pub max_quote_skew_ms: Option<u64>,
     pub timeout_ms: Option<u64>,
     pub retries: Option<u32>,
     pub cetus_sources: Option<Vec<String>>,
     pub seven_k_sources: Option<Vec<String>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ResearchRequest {
+    pub amounts: Option<Vec<String>>,
+    pub markets: Option<Vec<String>>,
+    #[serde(flatten)]
+    pub scan: ScanRequest,
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,6 +120,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/config", get(config))
         .route("/api/scans", get(history).post(run_scan))
         .route("/api/scans/latest", get(latest))
+        .route("/api/research", axum::routing::post(run_research))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -205,10 +227,90 @@ async fn run_scan(
     Ok(Json(report))
 }
 
+async fn run_research(
+    State(state): State<ApiState>,
+    Json(request): Json<ResearchRequest>,
+) -> Result<Json<ResearchReport>, ApiError> {
+    let permit = state.scan_lock.clone().try_acquire_owned().map_err(|_| {
+        ApiError(
+            StatusCode::CONFLICT,
+            "scan_in_progress",
+            "Another scan or research run is already running.".to_owned(),
+        )
+    })?;
+    let amounts = parse_research_amounts(request.amounts)?;
+    let markets = parse_research_markets(request.markets)?;
+    let base_settings = apply_request(state.settings.clone(), request.scan)?;
+    let mut reports = Vec::new();
+    let mut confirmation_pairs = BTreeSet::new();
+
+    for market in &markets {
+        for amount in &amounts {
+            let mut settings = base_settings.clone();
+            settings.quote_coin.clone_from(market);
+            settings.amount_in = *amount;
+            let report = run_with_settings(&settings).await?;
+            if report.opportunities().next().is_some() {
+                confirmation_pairs.insert((market.clone(), *amount));
+            }
+            reports.push(report);
+        }
+    }
+
+    for (market, amount) in confirmation_pairs {
+        for _ in 1..CONFIRMATION_RUNS {
+            let mut settings = base_settings.clone();
+            settings.quote_coin.clone_from(&market);
+            settings.amount_in = amount;
+            reports.push(run_with_settings(&settings).await?);
+        }
+    }
+    drop(permit);
+
+    let opportunities = confirm_opportunities(&reports, MIN_CONFIRMATIONS);
+    let routes_evaluated = reports.iter().map(|report| report.candidates.len()).sum();
+    let provider_failures = reports.iter().map(|report| report.failures.len()).sum();
+    let response = ResearchReport {
+        schema_version: 1,
+        observed_at_ms: now_ms(),
+        amounts_tested: amounts,
+        markets_tested: markets,
+        routes_evaluated,
+        provider_failures,
+        confirmation_runs: CONFIRMATION_RUNS,
+        opportunities,
+        reports,
+    };
+
+    let mut history = state.history.lock().await;
+    for report in &response.reports {
+        history.push_front(report.clone());
+    }
+    history.truncate(HISTORY_CAP);
+    Ok(Json(response))
+}
+
+async fn run_with_settings(settings: &ScannerSettings) -> Result<ScanReport, ApiError> {
+    let scanner = settings.scanner().map_err(|error| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_settings",
+            error.to_string(),
+        )
+    })?;
+    scanner
+        .scan()
+        .await
+        .map_err(|error| ApiError(StatusCode::BAD_GATEWAY, "scan_failed", error.to_string()))
+}
+
 fn apply_request(
     mut settings: ScannerSettings,
     request: ScanRequest,
 ) -> Result<ScannerSettings, ApiError> {
+    if let Some(value) = request.quote_coin {
+        settings.quote_coin = value.trim().to_owned();
+    }
     if let Some(value) = request.amount_in {
         settings.amount_in = parse(&value, "amount_in")?;
     }
@@ -217,6 +319,9 @@ fn apply_request(
     }
     if let Some(value) = request.min_profit_bps {
         settings.min_profit_bps = parse(&value, "min_profit_bps")?;
+    }
+    if let Some(value) = request.max_quote_skew_ms {
+        settings.max_quote_skew_ms = value;
     }
     if let Some(value) = request.timeout_ms {
         settings.timeout_ms = value;
@@ -230,10 +335,73 @@ fn apply_request(
     if let Some(value) = request.seven_k_sources {
         settings.seven_k_sources = clean_sources(value);
     }
+    if settings.quote_coin.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_settings",
+            "quote_coin must not be empty".to_owned(),
+        ));
+    }
     settings
         .validate()
         .map_err(|message| ApiError(StatusCode::BAD_REQUEST, "invalid_settings", message))?;
     Ok(settings)
+}
+
+fn parse_research_amounts(values: Option<Vec<String>>) -> Result<Vec<u128>, ApiError> {
+    let values = values.unwrap_or_else(|| DEFAULT_AMOUNTS.map(|value| value.to_string()).to_vec());
+    if values.is_empty() || values.len() > MAX_AMOUNTS {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_research_amounts",
+            format!("amounts must contain between 1 and {MAX_AMOUNTS} values"),
+        ));
+    }
+    let amounts: Vec<u128> = values
+        .iter()
+        .map(|value| parse(value, "amounts"))
+        .collect::<Result<_, _>>()?;
+    if amounts.contains(&0) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_research_amounts",
+            "amounts must be greater than zero".to_owned(),
+        ));
+    }
+    if amounts.iter().copied().collect::<BTreeSet<_>>().len() != amounts.len() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_research_amounts",
+            "amounts must not contain duplicates".to_owned(),
+        ));
+    }
+    Ok(amounts)
+}
+
+fn parse_research_markets(values: Option<Vec<String>>) -> Result<Vec<String>, ApiError> {
+    let markets = values.unwrap_or_else(|| DEFAULT_MARKETS.map(ToOwned::to_owned).to_vec());
+    if markets.is_empty() || markets.len() > MAX_MARKETS {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_research_markets",
+            format!("markets must contain between 1 and {MAX_MARKETS} coin types"),
+        ));
+    }
+    if markets.iter().any(|market| market.trim().is_empty()) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_research_markets",
+            "markets must not contain empty coin types".to_owned(),
+        ));
+    }
+    if markets.iter().collect::<BTreeSet<_>>().len() != markets.len() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_research_markets",
+            "markets must not contain duplicates".to_owned(),
+        ));
+    }
+    Ok(markets)
 }
 
 fn parse<T: std::str::FromStr>(value: &str, field: &'static str) -> Result<T, ApiError> {
@@ -304,5 +472,25 @@ mod tests {
         .unwrap();
         assert_eq!(settings.amount_in, 12_345_678_901_234_567_890);
         assert_eq!(settings.gas_cost, 7);
+    }
+
+    #[test]
+    fn research_amounts_are_bounded_and_unique() {
+        assert_eq!(
+            parse_research_amounts(Some(vec!["100".to_owned(), "200".to_owned()])).unwrap(),
+            [100, 200]
+        );
+        assert!(parse_research_amounts(Some(vec!["100".to_owned(), "100".to_owned()])).is_err());
+        assert!(parse_research_amounts(Some(Vec::new())).is_err());
+    }
+
+    #[test]
+    fn research_markets_are_bounded_and_unique() {
+        assert_eq!(
+            parse_research_markets(Some(vec!["A".to_owned(), "B".to_owned()])).unwrap(),
+            ["A", "B"]
+        );
+        assert!(parse_research_markets(Some(vec!["A".to_owned(), "A".to_owned()])).is_err());
+        assert!(parse_research_markets(Some(Vec::new())).is_err());
     }
 }

@@ -5,6 +5,7 @@
     "request_id": "fixture-cetus",
     "amount_in": 1000000000,
     "amount_out": 728353,
+    "gas": 35000,
     "paths": [
       {
         "id": "0xcetus-pool",

@@ -17,6 +17,7 @@ pub struct ScanConfig {
     pub amount_in: u128,
     pub gas_cost: u128,
     pub min_profit_bps: i128,
+    pub max_quote_skew_ms: u64,
     pub retries: u32,
 }
 
@@ -102,6 +103,7 @@ impl Scanner {
                     self.config.amount_in,
                     self.config.gas_cost,
                     self.config.min_profit_bps,
+                    self.config.max_quote_skew_ms,
                 ) {
                     Ok(candidate) => candidates.push(candidate),
                     Err(error) => failures.push(to_failure(provider, "score", error)),
@@ -157,6 +159,7 @@ fn score(
     amount_in: u128,
     gas_cost: u128,
     min_profit_bps: i128,
+    max_quote_skew_ms: u64,
 ) -> Result<Opportunity, ProviderError> {
     let amount = to_i128(amount_in)?;
     let returned = to_i128(reverse.amount_out)?;
@@ -173,7 +176,7 @@ fn score(
         .iter()
         .map(|hop| hop.pool_id.as_str())
         .collect();
-    let shared_pool_ids = reverse
+    let shared_pool_ids: Vec<String> = reverse
         .route
         .iter()
         .map(|hop| hop.pool_id.as_str())
@@ -184,6 +187,24 @@ fn score(
         .collect();
     drop(forward_pools);
     let same_quote_provider = forward.provider == reverse.provider;
+    let quote_skew_ms = forward.observed_at_ms.abs_diff(reverse.observed_at_ms);
+    let mut rejection_reasons = Vec::new();
+    if net_profit <= 0 {
+        rejection_reasons.push("not_positive_after_gas_reserve".to_owned());
+    }
+    if net_profit_bps < min_profit_bps {
+        rejection_reasons.push("below_minimum_profit_bps".to_owned());
+    }
+    if forward.route.is_empty() || reverse.route.is_empty() {
+        rejection_reasons.push("missing_route_evidence".to_owned());
+    }
+    if !shared_pool_ids.is_empty() {
+        rejection_reasons.push("shared_liquidity_between_legs".to_owned());
+    }
+    if quote_skew_ms > max_quote_skew_ms {
+        rejection_reasons.push("quote_observation_skew_too_high".to_owned());
+    }
+    let meets_threshold = rejection_reasons.is_empty();
 
     Ok(Opportunity {
         forward,
@@ -195,7 +216,9 @@ fn score(
         gas_cost,
         net_profit,
         net_profit_bps,
-        meets_threshold: net_profit > 0 && net_profit_bps >= min_profit_bps,
+        quote_skew_ms,
+        rejection_reasons,
+        meets_threshold,
     })
 }
 
@@ -292,6 +315,7 @@ mod tests {
                     coin_in: request.coin_in.clone(),
                     coin_out: request.coin_out.clone(),
                 }],
+                estimated_gas_cost: None,
                 observed_at_ms: 1,
                 latency_ms: 1,
             })
@@ -305,8 +329,46 @@ mod tests {
             amount_in: 1_000,
             gas_cost: 10,
             min_profit_bps: 50,
+            max_quote_skew_ms: 2_000,
             retries: 0,
         }
+    }
+
+    #[test]
+    fn score_requires_distinct_pools_and_bounded_quote_skew() {
+        let forward = Quote {
+            provider: "alpha".to_owned(),
+            coin_in: "SUI".to_owned(),
+            coin_out: "USDC".to_owned(),
+            amount_in: 1_000,
+            amount_out: 2_000,
+            quote_id: None,
+            route: vec![RouteHop {
+                route_index: 0,
+                venue: "alpha".to_owned(),
+                pool_id: "forward".to_owned(),
+                coin_in: "SUI".to_owned(),
+                coin_out: "USDC".to_owned(),
+            }],
+            estimated_gas_cost: None,
+            observed_at_ms: 1_000,
+            latency_ms: 1,
+        };
+        let mut reverse = forward.clone();
+        reverse.provider = "beta".to_owned();
+        reverse.amount_in = 2_000;
+        reverse.amount_out = 1_020;
+        reverse.route[0].pool_id = "reverse".to_owned();
+        reverse.observed_at_ms = 1_100;
+
+        let qualified = score(forward, reverse.clone(), 1_000, 10, 50, 200).unwrap();
+        assert!(qualified.meets_threshold);
+        assert!(qualified.rejection_reasons.is_empty());
+
+        reverse.observed_at_ms = 1_500;
+        let stale = score(qualified.forward, reverse, 1_000, 10, 50, 200).unwrap();
+        assert!(!stale.meets_threshold);
+        assert_eq!(stale.rejection_reasons, ["quote_observation_skew_too_high"]);
     }
 
     #[tokio::test]
@@ -336,12 +398,16 @@ mod tests {
         assert_eq!(report.candidates.len(), 4);
         assert_eq!(report.candidates[0].net_profit, 20);
         assert_eq!(report.candidates[0].net_profit_bps, 200);
-        assert!(report.candidates[0].meets_threshold);
+        assert!(!report.candidates[0].meets_threshold);
         assert!(report.candidates[0].same_quote_provider);
         assert_eq!(report.candidates[0].shared_pool_ids, ["alpha-pool"]);
+        assert_eq!(
+            report.candidates[0].rejection_reasons,
+            ["shared_liquidity_between_legs"]
+        );
         assert_eq!(report.candidates[3].net_profit, -20);
         assert!(!report.candidates[3].meets_threshold);
-        assert_eq!(report.opportunities().count(), 2);
+        assert_eq!(report.opportunities().count(), 0);
     }
 
     #[tokio::test]
