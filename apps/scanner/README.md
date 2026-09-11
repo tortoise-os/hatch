@@ -4,6 +4,24 @@ Read-only quote-surface scanner for Sui. It requests exact-in quotes from Cetus 
 
 Scanner cannot sign or submit transactions. It has no wallet, keypair, PTB, or Sui execution dependency.
 
+## Operator web app
+
+Start read-only scanner API:
+
+```bash
+bun run dev:scanner
+```
+
+In another terminal, start TortoiseOS dashboard:
+
+```bash
+bun run dev:web
+```
+
+Open `http://127.0.0.1:3410`. Overview shows latest signal and service health. Scanner workspace at `/scanner` can run bounded scans and inspect candidates, route hops, pool IDs, provider failures, and in-memory history. API listens on `http://127.0.0.1:3411`.
+
+History retains latest 100 reports in memory and resets with scanner service. Web app has no wallet or execution controls.
+
 ## Run
 
 ```bash

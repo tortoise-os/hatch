@@ -9,6 +9,8 @@
   ],
   "scripts": {
     "dev": "bun run --filter './apps/web' dev",
+    "dev:web": "bun run --filter './apps/web' dev",
+    "dev:scanner": "cargo run --manifest-path apps/scanner/Cargo.toml -- --serve",
     "build": "bun run --filter './apps/*' build",
     "test": "bun test",
     "lint": "bun run --filter './apps/*' --filter './packages/*' lint",

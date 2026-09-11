@@ -153,6 +153,17 @@ hatch/
 
 ## Development
 
+### Read-only arbitrage dashboard
+
+Run scanner API and web app in separate terminals:
+
+```bash
+bun run dev:scanner
+bun run dev:web
+```
+
+Open `http://127.0.0.1:3410`. Dashboard is operator-only and read-only: it requests live quotes and displays route evidence but cannot construct, sign, or submit transactions.
+
 ### Available Commands
 
 ```bash
