@@ -66,7 +66,7 @@ pub struct QuoteRequest {
 
 #[async_trait]
 pub trait QuoteProvider: Send + Sync {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
 
     async fn quote(&self, request: &QuoteRequest) -> Result<Quote, ProviderError>;
 }

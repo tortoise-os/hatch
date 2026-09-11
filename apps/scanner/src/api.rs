@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeSet, VecDeque},
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -15,22 +16,28 @@ use tokio::sync::{Mutex, Semaphore};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
-    ScanReport,
+    ResearchReport, ScanReport,
     app::ScannerSettings,
+    cartography::{CartographyReport, build_cartography},
     http::now_ms,
+    journal::{JournalError, ResearchJournal},
     research::{
         CONFIRMATION_RUNS, DEFAULT_AMOUNTS, DEFAULT_MARKETS, MAX_AMOUNTS, MAX_MARKETS,
-        MIN_CONFIRMATIONS, ResearchReport, confirm_opportunities,
+        MIN_CONFIRMATIONS, confirm_opportunities,
     },
 };
 
 const HISTORY_CAP: usize = 100;
+const RESEARCH_HISTORY_CAP: usize = 250;
 
 #[derive(Clone)]
 pub struct ApiState {
     settings: ScannerSettings,
     history: Arc<Mutex<VecDeque<ScanReport>>>,
+    research_history: Arc<Mutex<VecDeque<ResearchReport>>>,
     scan_lock: Arc<Semaphore>,
+    journal: Option<ResearchJournal>,
+    journal_rejected_lines: usize,
 }
 
 impl ApiState {
@@ -39,8 +46,37 @@ impl ApiState {
         Self {
             settings,
             history: Arc::new(Mutex::new(VecDeque::new())),
+            research_history: Arc::new(Mutex::new(VecDeque::new())),
             scan_lock: Arc::new(Semaphore::new(1)),
+            journal: None,
+            journal_rejected_lines: 0,
         }
+    }
+
+    pub fn persistent(settings: ScannerSettings, path: PathBuf) -> Result<Self, JournalError> {
+        let (journal, load) = ResearchJournal::open(path)?;
+        let mut research_history: VecDeque<_> = load.reports.into_iter().rev().collect();
+        research_history.truncate(RESEARCH_HISTORY_CAP);
+        let mut history = VecDeque::new();
+        for report in &research_history {
+            for scan in report.reports.iter().rev() {
+                history.push_back(scan.clone());
+                if history.len() == HISTORY_CAP {
+                    break;
+                }
+            }
+            if history.len() == HISTORY_CAP {
+                break;
+            }
+        }
+        Ok(Self {
+            settings,
+            history: Arc::new(Mutex::new(history)),
+            research_history: Arc::new(Mutex::new(research_history)),
+            scan_lock: Arc::new(Semaphore::new(1)),
+            journal: Some(journal),
+            journal_rejected_lines: load.rejected_lines,
+        })
     }
 }
 
@@ -50,7 +86,10 @@ struct HealthResponse {
     read_only: bool,
     scan_in_progress: bool,
     history_count: usize,
+    research_run_count: usize,
     latest_observed_at_ms: Option<u64>,
+    persistence: &'static str,
+    journal_rejected_lines: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,6 +97,7 @@ struct ConfigResponse {
     defaults: ScannerSettings,
     providers: [&'static str; 2],
     history_retention: &'static str,
+    journal_path: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -121,6 +161,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/scans", get(history).post(run_scan))
         .route("/api/scans/latest", get(latest))
         .route("/api/research", axum::routing::post(run_research))
+        .route("/api/cartography", get(cartography))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -132,12 +173,20 @@ pub fn router(state: ApiState) -> Router {
 
 async fn health(State(state): State<ApiState>) -> Json<HealthResponse> {
     let history = state.history.lock().await;
+    let research_history = state.research_history.lock().await;
     Json(HealthResponse {
         status: "ok",
         read_only: true,
         scan_in_progress: state.scan_lock.available_permits() == 0,
         history_count: history.len(),
+        research_run_count: research_history.len(),
         latest_observed_at_ms: history.front().map(|report| report.observed_at_ms),
+        persistence: if state.journal.is_some() {
+            "jsonl"
+        } else {
+            "memory_only"
+        },
+        journal_rejected_lines: state.journal_rejected_lines,
     })
 }
 
@@ -145,8 +194,27 @@ async fn config(State(state): State<ApiState>) -> Json<ConfigResponse> {
     Json(ConfigResponse {
         defaults: state.settings,
         providers: ["cetus", "seven_k"],
-        history_retention: "memory_only_100_reports",
+        history_retention: "100_scans_and_250_research_runs",
+        journal_path: state
+            .journal
+            .as_ref()
+            .map(|journal| journal.path().display().to_string()),
     })
+}
+
+async fn cartography(State(state): State<ApiState>) -> Json<CartographyReport> {
+    let history: Vec<_> = state
+        .research_history
+        .lock()
+        .await
+        .iter()
+        .cloned()
+        .collect();
+    Json(build_cartography(
+        &history,
+        now_ms(),
+        state.journal_rejected_lines,
+    ))
 }
 
 async fn latest(State(state): State<ApiState>) -> Result<Json<ScanReport>, ApiError> {
@@ -169,6 +237,11 @@ async fn history(
     Query(query): Query<HistoryQuery>,
 ) -> Json<HistoryResponse> {
     let limit = query.limit.unwrap_or(20).clamp(1, HISTORY_CAP);
+    let retention = if state.journal.is_some() {
+        "latest_100_scans_from_persistent_research_journal"
+    } else {
+        "memory_only_100_reports"
+    };
     let reports = state
         .history
         .lock()
@@ -177,10 +250,7 @@ async fn history(
         .take(limit)
         .cloned()
         .collect();
-    Json(HistoryResponse {
-        reports,
-        retention: "memory_only_100_reports",
-    })
+    Json(HistoryResponse { reports, retention })
 }
 
 async fn run_scan(
@@ -241,7 +311,7 @@ async fn run_research(
     let amounts = parse_research_amounts(request.amounts)?;
     let markets = parse_research_markets(request.markets)?;
     let base_settings = apply_request(state.settings.clone(), request.scan)?;
-    let mut reports = Vec::new();
+    let mut discovery_reports = Vec::new();
     let mut confirmation_pairs = BTreeSet::new();
 
     for market in &markets {
@@ -253,40 +323,68 @@ async fn run_research(
             if report.opportunities().next().is_some() {
                 confirmation_pairs.insert((market.clone(), *amount));
             }
-            reports.push(report);
+            discovery_reports.push(report);
         }
     }
 
+    let mut isolated_reports = Vec::new();
     for (market, amount) in confirmation_pairs {
-        for _ in 1..CONFIRMATION_RUNS {
+        for _ in 0..CONFIRMATION_RUNS {
             let mut settings = base_settings.clone();
             settings.quote_coin.clone_from(&market);
             settings.amount_in = amount;
-            reports.push(run_with_settings(&settings).await?);
+            isolated_reports
+                .push(run_with_isolated_settings(&settings, &base_settings.seven_k_sources).await?);
         }
     }
     drop(permit);
 
-    let opportunities = confirm_opportunities(&reports, MIN_CONFIRMATIONS);
+    let opportunities = confirm_opportunities(&isolated_reports, MIN_CONFIRMATIONS);
+    let discovery_report_count = discovery_reports.len();
+    let venue_isolated_report_count = isolated_reports.len();
+    let venues_tested = if isolated_reports.is_empty() {
+        Vec::new()
+    } else {
+        base_settings.seven_k_sources.clone()
+    };
+    let mut reports = discovery_reports;
+    reports.extend(isolated_reports);
     let routes_evaluated = reports.iter().map(|report| report.candidates.len()).sum();
     let provider_failures = reports.iter().map(|report| report.failures.len()).sum();
     let response = ResearchReport {
-        schema_version: 1,
+        schema_version: 2,
         observed_at_ms: now_ms(),
         amounts_tested: amounts,
         markets_tested: markets,
         routes_evaluated,
         provider_failures,
         confirmation_runs: CONFIRMATION_RUNS,
+        discovery_reports: discovery_report_count,
+        venue_isolated_reports: venue_isolated_report_count,
+        venues_tested,
         opportunities,
         reports,
     };
+
+    if let Some(journal) = &state.journal {
+        journal.append(&response).map_err(|error| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "journal_write_failed",
+                error.to_string(),
+            )
+        })?;
+    }
 
     let mut history = state.history.lock().await;
     for report in &response.reports {
         history.push_front(report.clone());
     }
     history.truncate(HISTORY_CAP);
+    drop(history);
+    let mut research_history = state.research_history.lock().await;
+    research_history.push_front(response.clone());
+    research_history.truncate(RESEARCH_HISTORY_CAP);
     Ok(Json(response))
 }
 
@@ -302,6 +400,26 @@ async fn run_with_settings(settings: &ScannerSettings) -> Result<ScanReport, Api
         .scan()
         .await
         .map_err(|error| ApiError(StatusCode::BAD_GATEWAY, "scan_failed", error.to_string()))
+}
+
+async fn run_with_isolated_settings(
+    settings: &ScannerSettings,
+    venues: &[String],
+) -> Result<ScanReport, ApiError> {
+    let scanner = settings.venue_isolated_scanner(venues).map_err(|error| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_isolated_settings",
+            error.to_string(),
+        )
+    })?;
+    scanner.scan().await.map_err(|error| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            "isolated_scan_failed",
+            error.to_string(),
+        )
+    })
 }
 
 fn apply_request(
@@ -457,6 +575,23 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["code"], "no_scan_history");
+    }
+
+    #[tokio::test]
+    async fn cartography_is_typed_when_research_is_empty() {
+        let response = router(ApiState::new(ScannerSettings::default()))
+            .oneshot(
+                Request::get("/api/cartography")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["research_runs"], 0);
+        assert_eq!(json["cells"], serde_json::json!([]));
     }
 
     #[test]

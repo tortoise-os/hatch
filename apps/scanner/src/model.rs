@@ -117,6 +117,16 @@ pub mod u128_vec_string {
             .collect::<Vec<_>>()
             .serialize(serializer)
     }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u128>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Vec::<String>::deserialize(deserializer)?
+            .into_iter()
+            .map(|value| value.parse().map_err(serde::de::Error::custom))
+            .collect()
+    }
 }
 
 pub mod i128_string {

@@ -55,9 +55,10 @@ impl Scanner {
         };
         let forward_results = join_all(self.providers.iter().map(|provider| {
             let request = forward_request.clone();
+            let provider_name = provider.name().to_owned();
             async move {
                 (
-                    provider.name(),
+                    provider_name,
                     quote_with_retry(provider.as_ref(), &request, self.config.retries).await,
                 )
             }
@@ -69,13 +70,14 @@ impl Scanner {
         for (provider, result) in forward_results {
             match result {
                 Ok(quote) => forward_quotes.push(quote),
-                Err(error) => failures.push(to_failure(provider, "forward", error)),
+                Err(error) => failures.push(to_failure(&provider, "forward", error)),
             }
         }
 
         let reverse_results = join_all(forward_quotes.iter().enumerate().flat_map(
             |(forward_index, forward)| {
                 self.providers.iter().map(move |provider| {
+                    let provider_name = provider.name().to_owned();
                     let request = QuoteRequest {
                         coin_in: self.config.quote_coin.clone(),
                         coin_out: self.config.base_coin.clone(),
@@ -84,7 +86,7 @@ impl Scanner {
                     async move {
                         (
                             forward_index,
-                            provider.name(),
+                            provider_name,
                             quote_with_retry(provider.as_ref(), &request, self.config.retries)
                                 .await,
                         )
@@ -106,9 +108,9 @@ impl Scanner {
                     self.config.max_quote_skew_ms,
                 ) {
                     Ok(candidate) => candidates.push(candidate),
-                    Err(error) => failures.push(to_failure(provider, "score", error)),
+                    Err(error) => failures.push(to_failure(&provider, "score", error)),
                 },
-                Err(error) => failures.push(to_failure(provider, "reverse", error)),
+                Err(error) => failures.push(to_failure(&provider, "reverse", error)),
             }
         }
 
@@ -282,7 +284,7 @@ mod tests {
 
     #[async_trait]
     impl QuoteProvider for MockProvider {
-        fn name(&self) -> &'static str {
+        fn name(&self) -> &str {
             self.name
         }
 

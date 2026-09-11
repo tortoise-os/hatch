@@ -25,6 +25,7 @@ static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone)]
 pub struct SevenKProvider {
+    name: String,
     http: HttpClient,
     endpoint: String,
     sources: Vec<String>,
@@ -34,6 +35,22 @@ impl SevenKProvider {
     #[must_use]
     pub fn new(http: HttpClient, endpoint: impl Into<String>, sources: Vec<String>) -> Self {
         Self {
+            name: "seven_k".to_owned(),
+            http,
+            endpoint: endpoint.into(),
+            sources,
+        }
+    }
+
+    #[must_use]
+    pub fn new_named(
+        name: impl Into<String>,
+        http: HttpClient,
+        endpoint: impl Into<String>,
+        sources: Vec<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
             http,
             endpoint: endpoint.into(),
             sources,
@@ -43,8 +60,8 @@ impl SevenKProvider {
 
 #[async_trait]
 impl QuoteProvider for SevenKProvider {
-    fn name(&self) -> &'static str {
-        "seven_k"
+    fn name(&self) -> &str {
+        &self.name
     }
 
     async fn quote(&self, request: &QuoteRequest) -> Result<Quote, ProviderError> {
@@ -67,12 +84,14 @@ impl QuoteProvider for SevenKProvider {
             .http
             .get_json::<SevenKResponse>(self.name(), url, Some(&request_id))
             .await?;
-        parse_response(
+        let mut quote = parse_response(
             response.body,
             request_id,
             response.observed_at_ms,
             response.latency_ms,
-        )
+        )?;
+        quote.provider.clone_from(&self.name);
+        Ok(quote)
     }
 }
 
@@ -216,5 +235,17 @@ mod tests {
         let quote = parse_response(response, "id".to_owned(), 0, 0).expect("quote parses");
         assert_eq!(quote.route[0].venue, "unknown");
         assert_eq!(quote.route[0].pool_id, "pool");
+    }
+
+    #[test]
+    fn isolated_provider_keeps_venue_identity() {
+        let http = HttpClient::new(std::time::Duration::from_secs(1)).unwrap();
+        let provider = SevenKProvider::new_named(
+            "seven_k:deepbook_v3",
+            http,
+            DEFAULT_ENDPOINT,
+            vec!["deepbook_v3".to_owned()],
+        );
+        assert_eq!(provider.name(), "seven_k:deepbook_v3");
     }
 }

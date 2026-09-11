@@ -61,7 +61,10 @@ export type Health = {
   read_only: boolean;
   scan_in_progress: boolean;
   history_count: number;
+  research_run_count: number;
   latest_observed_at_ms: number | null;
+  persistence: "jsonl" | "memory_only";
+  journal_rejected_lines: number;
 };
 
 export type ScanInput = {
@@ -77,7 +80,8 @@ export type ScanInput = {
 };
 
 export type ConfirmedOpportunity = {
-  validation_tier: "quote_confirmed";
+  validation_tier: "venue_isolated_quote_confirmed";
+  simulation_status: "pending";
   route_fingerprint: string;
   amount_in: string;
   quote_coin: string;
@@ -97,8 +101,42 @@ export type ResearchReport = {
   routes_evaluated: number;
   provider_failures: number;
   confirmation_runs: number;
+  discovery_reports: number;
+  venue_isolated_reports: number;
+  venues_tested: string[];
   opportunities: ConfirmedOpportunity[];
   reports: ScanReport[];
+};
+
+export type CartographyCell = {
+  quote_coin: string;
+  market_symbol: string;
+  evidence_tier: "aggregator_discovery" | "venue_isolated";
+  forward_venues: string;
+  reverse_venues: string;
+  observed_round_trips: number;
+  positive_quotes: number;
+  positive_rate_bps: number;
+  confirmed_signals: number;
+  confirmation_hits: number;
+  confirmation_samples: number;
+  best_net_profit: string;
+  worst_net_profit: string;
+  best_amount_in: string;
+  last_observed_at_ms: number;
+  simulation_status: "pending";
+};
+
+export type CartographyReport = {
+  schema_version: number;
+  generated_at_ms: number;
+  research_runs: number;
+  scan_reports: number;
+  observed_round_trips: number;
+  confirmed_signals: number;
+  journal_rejected_lines: number;
+  cells: CartographyCell[];
+  rejection_reasons: Record<string, number>;
 };
 
 export type ResearchInput = Omit<ScanInput, "amount_in" | "quote_coin"> & { amounts?: string[]; markets?: string[] };
@@ -116,6 +154,7 @@ export const scannerApi = {
   health: () => request<Health>("/api/health"),
   latest: () => request<ScanReport>("/api/scans/latest"),
   history: () => request<{ reports: ScanReport[]; retention: string }>("/api/scans?limit=20"),
+  cartography: () => request<CartographyReport>("/api/cartography"),
   scan: (input: ScanInput) =>
     request<ScanReport>("/api/scans", {
       method: "POST",

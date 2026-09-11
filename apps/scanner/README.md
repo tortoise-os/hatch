@@ -18,9 +18,9 @@ In another terminal, start TortoiseOS dashboard:
 bun run dev:web
 ```
 
-Open `http://127.0.0.1:3410`. Overview shows latest signal and service health. Scanner workspace at `/scanner` can run one-shot scans or bounded auto research across USDC, USDT, CETUS, DEEP, and WAL. Auto research sweeps eight SUI sizes and rechecks positive route fingerprints three times. API listens on `http://127.0.0.1:3411`.
+Open `http://127.0.0.1:3410`. Overview shows latest signal and service health. Scanner workspace at `/scanner` can run one-shot scans or bounded auto research across USDC, USDT, CETUS, DEEP, WAL, and BUCK. Auto research sweeps eight SUI sizes, advances positive market/size pairs to venue-isolated 7K quotes, and rechecks route fingerprints three times. API listens on `http://127.0.0.1:3411`.
 
-History retains latest 100 reports in memory and resets with scanner service. Web app has no wallet or execution controls.
+Research history appends to `apps/scanner/data/research.jsonl` and reloads after scanner restart. Override location with `HATCH_SCANNER_JOURNAL`. Web app has no wallet or execution controls.
 
 ## Run
 
@@ -62,8 +62,9 @@ cargo run --manifest-path apps/scanner/Cargo.toml --release -- >> scans.jsonl
 - `meets_threshold`: positive after reserve, at or above `min_profit_bps`, with route evidence, no shared pool IDs, and quote skew inside limit.
 - `rejection_reasons`: exact gates that prevented promotion.
 - `POST /api/research`: bounded market/size matrix with repeated fingerprint confirmation.
-- `opportunities`: routes positive in at least two of three samples for one market and size.
-- `validation_tier: quote_confirmed`: repeated quote evidence only; full PTB simulation remains pending.
+- `opportunities`: venue-isolated routes positive in at least two of three samples for one market and size.
+- `validation_tier: venue_isolated_quote_confirmed`: repeated isolated quote evidence only; full PTB simulation remains pending.
+- `GET /api/cartography`: persisted evidence grouped by market, evidence tier, and directional venue path.
 - `failures`: provider, scan stage, failure class, retryability, and message.
 - `route`: underlying venue and pool metadata supplied by each aggregator.
 - `route_index`: preserves split-route branch grouping from Bluefin/7K.

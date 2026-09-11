@@ -1,6 +1,8 @@
 pub mod api;
 pub mod app;
+pub mod cartography;
 pub mod http;
+pub mod journal;
 pub mod model;
 pub mod provider;
 pub mod providers;

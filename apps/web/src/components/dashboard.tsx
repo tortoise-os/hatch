@@ -1,9 +1,9 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, ChevronDown, Clock3, Gauge, Play, RefreshCw, Route, Server, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronDown, Clock3, Database, Gauge, Map, Play, RefreshCw, Server, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatAge, formatSui, scannerApi, shortId, type Candidate, type ConfirmedOpportunity, type ResearchReport, type ScanInput, type ScanReport } from "@/lib/api";
+import { formatAge, formatSui, scannerApi, shortId, type Candidate, type CartographyReport, type ConfirmedOpportunity, type ResearchReport, type ScanInput, type ScanReport } from "@/lib/api";
 
 const defaults: ScanInput = {
   amount_in: "1000000000",
@@ -19,16 +19,21 @@ const defaults: ScanInput = {
 function useScannerData() {
   const [latest, setLatest] = useState<ScanReport | null>(null);
   const [history, setHistory] = useState<ScanReport[]>([]);
+  const [cartography, setCartography] = useState<CartographyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const refresh = useCallback(async () => {
-    const result = await scannerApi.history();
-    setHistory(result.reports);
-    setLatest(result.reports[0] ?? null);
+    const [historyResult, cartographyResult] = await Promise.all([
+      scannerApi.history(),
+      scannerApi.cartography(),
+    ]);
+    setHistory(historyResult.reports);
+    setLatest(historyResult.reports[0] ?? null);
+    setCartography(cartographyResult);
   }, []);
   useEffect(() => {
     refresh().catch(() => {}).finally(() => setLoading(false));
   }, [refresh]);
-  return { latest, setLatest, history, refresh, loading };
+  return { latest, setLatest, history, cartography, refresh, loading };
 }
 
 function best(report: ScanReport | null) {
@@ -94,12 +99,12 @@ function ScanHistoryRow({ report }: { report: ScanReport }) {
   return <div className="scan-row"><span className="scan-time">{new Date(report.observed_at_ms).toLocaleTimeString()}</span><span>{report.candidates.length} evaluated</span><span>{report.failures.length} failures</span><strong className={top && BigInt(top.net_profit) > 0n ? "positive" : "negative"}>{top ? `${formatSui(top.net_profit)} SUI` : "No complete route"}</strong><span>{formatAge(report.observed_at_ms)}</span></div>;
 }
 
-type Tab = "opportunities" | "evaluated" | "routes" | "failures" | "history";
+type Tab = "map" | "opportunities" | "evaluated" | "routes" | "failures" | "history";
 
 export function ScannerDashboard() {
-  const { latest, setLatest, history, refresh, loading } = useScannerData();
+  const { latest, setLatest, history, cartography, refresh, loading } = useScannerData();
   const [form, setForm] = useState(defaults);
-  const [tab, setTab] = useState<Tab>("opportunities");
+  const [tab, setTab] = useState<Tab>("map");
   const [scanning, setScanning] = useState(false);
   const [researching, setResearching] = useState(false);
   const [research, setResearch] = useState<ResearchReport | null>(null);
@@ -131,18 +136,18 @@ export function ScannerDashboard() {
       setResearch(result);
       setLatest(result.reports.at(-1) ?? null);
       await refresh();
-      setTab("opportunities");
+      setTab("map");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Research failed."); }
     finally { setResearching(false); }
   }
 
   return <div className="stack-lg">
-    <div className="page-heading"><div><span className="eyebrow"><Route size={14} /> Quote-surface scanner</span><h1>Round-trip evidence</h1><p>Auto research sweeps SUI sizes across USDC, USDT, CETUS, DEEP, and WAL; rejects shared pools and stale quote pairs; then repeats positive routes. Quote-confirmed only.</p></div>{latest && <div className="latest-stamp"><span className="status-dot" /> Latest scan {formatAge(latest.observed_at_ms)}</div>}</div>
+    <div className="page-heading"><div><span className="eyebrow"><Map size={14} /> Opportunity cartographer</span><h1>Where edge survives.</h1><p>Broad quotes discover leads across six Sui markets. Positive pairs advance to venue-isolated checks. Persistent map shows where evidence repeats—and where it fails.</p></div>{latest && <div className="latest-stamp"><span className="status-dot" /> Latest scan {formatAge(latest.observed_at_ms)}</div>}</div>
     {error && <div className="error-banner"><AlertTriangle size={18} /><div><strong>Scan did not complete</strong><span>{error} Previous evidence remains visible.</span></div></div>}
     <div className="scanner-layout">
       <aside className="control-panel" aria-label="Scan settings">
         <div className="panel-title"><div><Server size={18} /><h2>Research settings</h2></div><span>Read only</span></div>
-        <Field label="One-shot amount (MIST)" value={form.amount_in} onChange={(amount_in) => setForm({ ...form, amount_in })} help="Auto research uses 0.1–25 SUI across five liquid markets" />
+        <Field label="One-shot amount (MIST)" value={form.amount_in} onChange={(amount_in) => setForm({ ...form, amount_in })} help="Auto research uses 0.1–25 SUI across six curated markets" />
         <Field label="Gas reserve (MIST)" value={form.gas_cost} onChange={(gas_cost) => setForm({ ...form, gas_cost })} help="Applied to every round trip; not simulated gas" />
         <Field label="Minimum profit (bps)" value={form.min_profit_bps} onChange={(min_profit_bps) => setForm({ ...form, min_profit_bps })} />
         <Field label="Maximum quote skew (ms)" value={String(form.max_quote_skew_ms)} onChange={(value) => setForm({ ...form, max_quote_skew_ms: Number(value) })} help="Rejects legs observed too far apart" />
@@ -150,27 +155,55 @@ export function ScannerDashboard() {
         <Field label="7K sources" value={form.seven_k_sources.join(", ")} onChange={(value) => setForm({ ...form, seven_k_sources: value.split(",").map((part) => part.trim()).filter(Boolean) })} help="Comma-separated venue names" />
         <button className="button primary full" onClick={runResearch} disabled={researching || scanning}>{researching ? <><RefreshCw className="spin" size={17} /> Researching sizes…</> : <><Sparkles size={17} /> Auto research</>}</button>
         <button className="button secondary full" onClick={runScan} disabled={researching || scanning}>{scanning ? <><RefreshCw className="spin" size={17} /> Scanning quotes…</> : <><Play size={17} /> Run one scan</>}</button>
-        <p className="safety-note">No wallet, transaction build, simulation, signing, or submission. Opportunity means repeated quote evidence—not executable profit.</p>
+        <p className="safety-note">No wallet, transaction build, simulation, signing, or submission. Confirmed means repeated venue-isolated quote evidence—not executable profit.</p>
       </aside>
       <section className="results-panel">
         {research && <ResearchSummary report={research} />}
         <div className="tabs" role="tablist" aria-label="Scanner results">
-          {(["opportunities", "evaluated", "routes", "failures", "history"] as Tab[]).map((item) => <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)}>{item}<span>{item === "opportunities" ? research?.opportunities.length ?? 0 : item === "evaluated" ? evaluated.length : item === "failures" ? research?.provider_failures ?? latest?.failures.length ?? 0 : item === "history" ? history.length : ""}</span></button>)}
+          {(["map", "opportunities", "evaluated", "routes", "failures", "history"] as Tab[]).map((item) => <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)}>{item}<span>{item === "map" ? cartography?.cells.length ?? 0 : item === "opportunities" ? research?.opportunities.length ?? cartography?.confirmed_signals ?? 0 : item === "evaluated" ? evaluated.length : item === "failures" ? research?.provider_failures ?? latest?.failures.length ?? 0 : item === "history" ? history.length : ""}</span></button>)}
         </div>
         <div className="tab-body" role="tabpanel">
-          {loading ? <div className="empty-state">Loading scanner evidence…</div> : tab === "opportunities" ? <OpportunityList research={research} onResearch={runResearch} /> : !latest ? <div className="empty-state"><Gauge size={30} /><strong>No scan evidence yet</strong><span>Run bounded auto research to compare live quote surfaces across sizes.</span><button className="button primary" onClick={runResearch}>Start auto research</button></div> : tab === "evaluated" ? <CandidateList candidates={evaluated} /> : tab === "routes" ? <RouteList candidates={evaluated} /> : tab === "failures" ? <ResearchFailureList research={research} latest={latest} /> : <div className="scan-list">{history.map((report) => <ScanHistoryRow key={report.observed_at_ms} report={report} />)}</div>}
+          {loading ? <div className="empty-state">Loading scanner evidence…</div> : tab === "map" ? <CartographyView report={cartography} onResearch={runResearch} /> : tab === "opportunities" ? <OpportunityList research={research} onResearch={runResearch} /> : !latest ? <div className="empty-state"><Gauge size={30} /><strong>No scan evidence yet</strong><span>Run bounded auto research to compare live quote surfaces across sizes.</span><button className="button primary" onClick={runResearch}>Start auto research</button></div> : tab === "evaluated" ? <CandidateList candidates={evaluated} /> : tab === "routes" ? <RouteList candidates={evaluated} /> : tab === "failures" ? <ResearchFailureList research={research} latest={latest} /> : <div className="scan-list">{history.map((report) => <ScanHistoryRow key={report.observed_at_ms} report={report} />)}</div>}
         </div>
       </section>
     </div>
   </div>;
 }
 
+function CartographyView({ report, onResearch }: { report: CartographyReport | null; onResearch: () => void }) {
+  if (!report || report.research_runs === 0) return <div className="empty-state"><Database size={30} /><strong>No persistent market evidence yet</strong><span>Run auto research. Results will survive scanner restarts and build this map.</span><button className="button primary" onClick={onResearch}>Map markets</button></div>;
+  const rejections = Object.entries(report.rejection_reasons).sort((left, right) => right[1] - left[1]);
+  return <div className="map-view">
+    <div className="map-overview">
+      <div><span>Research runs</span><strong>{report.research_runs}</strong></div>
+      <div><span>Round trips</span><strong>{report.observed_round_trips}</strong></div>
+      <div><span>Map cells</span><strong>{report.cells.length}</strong></div>
+      <div><span>Confirmed signals</span><strong className={report.confirmed_signals ? "positive" : ""}>{report.confirmed_signals}</strong></div>
+    </div>
+    <div className="map-section-heading"><div><span className="eyebrow">Market × venue direction</span><h2>Evidence map</h2></div><span>Isolated evidence first · sample count shown</span></div>
+    {report.cells.length === 0 ? <div className="empty-state compact"><Gauge size={26} /><strong>No complete venue paths stored</strong><span>Research ran, but providers returned no comparable round trips.</span></div> : <div className="market-map">{report.cells.slice(0, 48).map((cell) => {
+      const bestPositive = BigInt(cell.best_net_profit) > 0n;
+      const tone = cell.confirmed_signals > 0 ? "hot" : cell.positive_quotes > 0 ? "warm" : "cold";
+      const status = cell.confirmed_signals > 0 ? "Quote confirmed" : cell.evidence_tier === "venue_isolated" ? "Isolated · unconfirmed" : "Discovery lead only";
+      return <article className={`map-cell ${tone}`} key={`${cell.quote_coin}-${cell.evidence_tier}-${cell.forward_venues}-${cell.reverse_venues}`}>
+        <div className="map-cell-head"><div><span>{cell.market_symbol}</span><strong><span>{cell.forward_venues}</span><ArrowRight size={13} /><span>{cell.reverse_venues}</span></strong></div><span className="tier-chip">{cell.evidence_tier === "venue_isolated" ? "Isolated" : "Discovery"}</span></div>
+        <div className="map-profit"><span>Best quoted net</span><strong className={bestPositive ? "positive" : "negative"}>{bestPositive ? "+" : ""}{formatSui(cell.best_net_profit)} SUI</strong><small>at {formatSui(cell.best_amount_in)} SUI</small></div>
+        <div className="map-stats"><span><strong>{(cell.positive_rate_bps / 100).toFixed(2)}%</strong> positive</span><span><strong>{cell.positive_quotes}/{cell.observed_round_trips}</strong> observations</span><span><strong>{cell.confirmed_signals}</strong> confirmed</span></div>
+        <div className="map-cell-foot"><span>{formatAge(cell.last_observed_at_ms)}</span><strong>{status} · simulation {cell.simulation_status}</strong></div>
+      </article>;
+    })}</div>}
+    <section className="rejection-panel"><div><span className="eyebrow">Failed gates</span><h2>Why routes disappear</h2></div>{rejections.length === 0 ? <span>No rejection reasons stored.</span> : <div className="rejection-bars">{rejections.slice(0, 8).map(([reason, count]) => <div key={reason}><span>{reason.replaceAll("_", " ")}</span><strong>{count}</strong><i style={{ width: `${Math.max(4, (count / rejections[0][1]) * 100)}%` }} /></div>)}</div>}</section>
+  </div>;
+}
+
 function ResearchSummary({ report }: { report: ResearchReport }) {
   return <div className="research-summary" aria-label="Auto research summary">
-    <div><span>Sizes tested</span><strong>{report.amounts_tested.length}</strong></div>
-    <div><span>Markets tested</span><strong>{report.markets_tested.length}</strong></div>
-    <div><span>Routes evaluated</span><strong>{report.routes_evaluated}</strong></div>
-    <div><span>Quote confirmed</span><strong className={report.opportunities.length ? "positive" : ""}>{report.opportunities.length}</strong></div>
+    <div><span>Sizes</span><strong>{report.amounts_tested.length}</strong></div>
+    <div><span>Markets</span><strong>{report.markets_tested.length}</strong></div>
+    <div><span>Discovery scans</span><strong>{report.discovery_reports}</strong></div>
+    <div><span>Isolated scans</span><strong>{report.venue_isolated_reports}</strong></div>
+    <div><span>Routes</span><strong>{report.routes_evaluated}</strong></div>
+    <div><span>Confirmed</span><strong className={report.opportunities.length ? "positive" : ""}>{report.opportunities.length}</strong></div>
   </div>;
 }
 
@@ -182,7 +215,7 @@ function OpportunityList({ research, onResearch }: { research: ResearchReport | 
 
 function ConfirmedOpportunityRow({ opportunity, rank }: { opportunity: ConfirmedOpportunity; rank: number }) {
   const candidate = opportunity.representative;
-  return <details className="candidate confirmed"><summary><div className="rank">{rank}</div><div className="route-name"><strong>SUI/{coinSymbol(opportunity.quote_coin)} · {candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span className="validation-chip">QUOTE CONFIRMED · {opportunity.confirmations}/{opportunity.samples}</span></div><div className="candidate-stat"><span>Input</span><strong>{formatSui(opportunity.amount_in)} SUI</strong></div><div className="candidate-stat"><span>Worst net</span><strong className="positive">+{formatSui(opportunity.worst_net_profit)} SUI</strong></div><div className="bps"><strong>{candidate.net_profit_bps}</strong><span>bps</span></div><ChevronDown className="chevron" size={18} /></summary><div className="confirmation-evidence"><span>Best observed +{formatSui(opportunity.best_net_profit)} SUI</span><span>Max quote skew {opportunity.max_quote_skew_ms} ms</span><span>Fingerprint {opportunity.route_fingerprint}</span><strong>PTB simulation pending</strong></div><Evidence candidate={candidate} /></details>;
+  return <details className="candidate confirmed"><summary><div className="rank">{rank}</div><div className="route-name"><strong>SUI/{coinSymbol(opportunity.quote_coin)} · {candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span className="validation-chip">VENUE-ISOLATED QUOTE · {opportunity.confirmations}/{opportunity.samples}</span></div><div className="candidate-stat"><span>Input</span><strong>{formatSui(opportunity.amount_in)} SUI</strong></div><div className="candidate-stat"><span>Worst net</span><strong className="positive">+{formatSui(opportunity.worst_net_profit)} SUI</strong></div><div className="bps"><strong>{candidate.net_profit_bps}</strong><span>bps</span></div><ChevronDown className="chevron" size={18} /></summary><div className="confirmation-evidence"><span>Best observed +{formatSui(opportunity.best_net_profit)} SUI</span><span>Max quote skew {opportunity.max_quote_skew_ms} ms</span><span>Fingerprint {opportunity.route_fingerprint}</span><strong>PTB simulation {opportunity.simulation_status}</strong></div><Evidence candidate={candidate} /></details>;
 }
 
 function coinSymbol(coinType: string) {

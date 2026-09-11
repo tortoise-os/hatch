@@ -105,6 +105,41 @@ impl ScannerSettings {
             },
         ))
     }
+
+    pub fn venue_isolated_scanner(
+        &self,
+        venues: &[String],
+    ) -> Result<Scanner, Box<dyn std::error::Error>> {
+        self.validate()
+            .map_err(|message| format!("invalid settings: {message}"))?;
+        if venues.is_empty() {
+            return Err("at least one isolated venue is required".into());
+        }
+        let http = HttpClient::new(Duration::from_millis(self.timeout_ms))?;
+        let providers: Vec<Arc<dyn QuoteProvider>> = venues
+            .iter()
+            .map(|venue| {
+                Arc::new(SevenKProvider::new_named(
+                    format!("seven_k:{venue}"),
+                    http.clone(),
+                    self.seven_k_endpoint.clone(),
+                    vec![venue.clone()],
+                )) as Arc<dyn QuoteProvider>
+            })
+            .collect();
+        Ok(Scanner::new(
+            providers,
+            ScanConfig {
+                base_coin: self.base_coin.clone(),
+                quote_coin: self.quote_coin.clone(),
+                amount_in: self.amount_in,
+                gas_cost: self.gas_cost,
+                min_profit_bps: self.min_profit_bps,
+                max_quote_skew_ms: self.max_quote_skew_ms,
+                retries: self.retries,
+            },
+        ))
+    }
 }
 
 pub fn split_sources(value: &str) -> Vec<String> {

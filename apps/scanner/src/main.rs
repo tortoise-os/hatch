@@ -4,6 +4,7 @@ use clap::Parser;
 use hatch_sui_scanner::{
     api::{ApiState, router},
     app::{NATIVE_USDC, SUI, ScannerSettings, split_sources},
+    journal::default_journal_path,
 };
 
 #[derive(Debug, Parser)]
@@ -115,8 +116,9 @@ async fn serve(
         .validate()
         .map_err(|message| format!("invalid settings: {message}"))?;
     let listener = tokio::net::TcpListener::bind(listen).await?;
+    let state = ApiState::persistent(settings, default_journal_path())?;
     println!("Hatch scanner API listening on http://{listen} (read only)");
-    axum::serve(listener, router(ApiState::new(settings))).await?;
+    axum::serve(listener, router(state)).await?;
     Ok(())
 }
 

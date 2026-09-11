@@ -13,7 +13,7 @@ enum AtomicValue {
 }
 
 impl AtomicValue {
-    fn parse(&self, provider: &'static str, field: &str) -> Result<u128, ProviderError> {
+    fn parse(&self, provider: &str, field: &str) -> Result<u128, ProviderError> {
         match self {
             Self::String(value) => value.parse().map_err(|error| {
                 ProviderError::new(
@@ -28,11 +28,7 @@ impl AtomicValue {
     }
 }
 
-fn endpoint_url(
-    provider: &'static str,
-    endpoint: &str,
-    path: &str,
-) -> Result<reqwest::Url, ProviderError> {
+fn endpoint_url(provider: &str, endpoint: &str, path: &str) -> Result<reqwest::Url, ProviderError> {
     let full = format!("{}/{path}", endpoint.trim_end_matches('/'));
     reqwest::Url::parse(&full).map_err(|error| {
         ProviderError::new(

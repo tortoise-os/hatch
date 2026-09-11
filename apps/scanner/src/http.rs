@@ -28,7 +28,7 @@ impl HttpClient {
 
     pub async fn get_json<T>(
         &self,
-        provider: &'static str,
+        provider: &str,
         url: Url,
         request_id: Option<&str>,
     ) -> Result<HttpJson<T>, ProviderError>
@@ -85,7 +85,7 @@ pub fn now_ms() -> u64 {
         .unwrap_or_default()
 }
 
-fn status_error(provider: &'static str, status: StatusCode, body: &str) -> ProviderError {
+fn status_error(provider: &str, status: StatusCode, body: &str) -> ProviderError {
     let message = format!("HTTP {}: {}", status.as_u16(), truncate(body.trim(), 300));
     match status {
         StatusCode::TOO_MANY_REQUESTS => {

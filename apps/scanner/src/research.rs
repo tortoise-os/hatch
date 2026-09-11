@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{Opportunity, ScanReport};
 
@@ -14,21 +14,23 @@ pub const DEFAULT_AMOUNTS: [u128; 8] = [
     10_000_000_000,
     25_000_000_000,
 ];
-pub const DEFAULT_MARKETS: [&str; 5] = [
+pub const DEFAULT_MARKETS: [&str; 6] = [
     "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
     "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN",
     "0x06864a6f921804860930db6ddbe2e16acdf8504495ea7481637a1c8b9a8fe54b::cetus::CETUS",
     "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
     "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL",
+    "0xce7ff77a83ea0cb6fd39bd8748e2ec89a3f41e8efdc3f4eb123e0ca37b184db2::buck::BUCK",
 ];
 pub const MAX_AMOUNTS: usize = 12;
-pub const MAX_MARKETS: usize = 8;
+pub const MAX_MARKETS: usize = 12;
 pub const CONFIRMATION_RUNS: usize = 3;
 pub const MIN_CONFIRMATIONS: usize = 2;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfirmedOpportunity {
-    pub validation_tier: &'static str,
+    pub validation_tier: String,
+    pub simulation_status: String,
     pub route_fingerprint: String,
     #[serde(with = "crate::model::u128_string")]
     pub amount_in: u128,
@@ -43,7 +45,7 @@ pub struct ConfirmedOpportunity {
     pub representative: Opportunity,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResearchReport {
     pub schema_version: u8,
     pub observed_at_ms: u64,
@@ -53,6 +55,12 @@ pub struct ResearchReport {
     pub routes_evaluated: usize,
     pub provider_failures: usize,
     pub confirmation_runs: usize,
+    #[serde(default)]
+    pub discovery_reports: usize,
+    #[serde(default)]
+    pub venue_isolated_reports: usize,
+    #[serde(default)]
+    pub venues_tested: Vec<String>,
     pub opportunities: Vec<ConfirmedOpportunity>,
     pub reports: Vec<ScanReport>,
 }
@@ -93,7 +101,8 @@ pub fn confirm_opportunities(
                 .max()
                 .unwrap_or_default();
             Some(ConfirmedOpportunity {
-                validation_tier: "quote_confirmed",
+                validation_tier: "venue_isolated_quote_confirmed".to_owned(),
+                simulation_status: "pending".to_owned(),
                 route_fingerprint,
                 amount_in,
                 quote_coin: quote_coin.clone(),

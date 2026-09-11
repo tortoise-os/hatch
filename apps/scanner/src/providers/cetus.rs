@@ -14,6 +14,7 @@ const SDK_VERSION: &str = "1999999";
 
 #[derive(Debug, Clone)]
 pub struct CetusProvider {
+    name: String,
     http: HttpClient,
     endpoint: String,
     sources: Vec<String>,
@@ -23,6 +24,22 @@ impl CetusProvider {
     #[must_use]
     pub fn new(http: HttpClient, endpoint: impl Into<String>, sources: Vec<String>) -> Self {
         Self {
+            name: "cetus".to_owned(),
+            http,
+            endpoint: endpoint.into(),
+            sources,
+        }
+    }
+
+    #[must_use]
+    pub fn new_named(
+        name: impl Into<String>,
+        http: HttpClient,
+        endpoint: impl Into<String>,
+        sources: Vec<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
             http,
             endpoint: endpoint.into(),
             sources,
@@ -32,8 +49,8 @@ impl CetusProvider {
 
 #[async_trait]
 impl QuoteProvider for CetusProvider {
-    fn name(&self) -> &'static str {
-        "cetus"
+    fn name(&self) -> &str {
+        &self.name
     }
 
     async fn quote(&self, request: &QuoteRequest) -> Result<Quote, ProviderError> {
@@ -55,7 +72,10 @@ impl QuoteProvider for CetusProvider {
             .http
             .get_json::<CetusEnvelope>(self.name(), url, None)
             .await?;
-        parse_response(response.body, response.observed_at_ms, response.latency_ms)
+        let mut quote =
+            parse_response(response.body, response.observed_at_ms, response.latency_ms)?;
+        quote.provider.clone_from(&self.name);
+        Ok(quote)
     }
 }
 
