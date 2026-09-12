@@ -1,5 +1,7 @@
 import type { CartographyCell, CartographyReport } from "./api";
 
+export const CARTOGRAPHY_PAGE_SIZE = 48;
+
 export function rankCartographyCells(cells: CartographyCell[]): CartographyCell[] {
   return [...cells].sort((left, right) => {
     const simulation = Number(right.simulation_status === "simulation_confirmed") - Number(left.simulation_status === "simulation_confirmed");
@@ -15,10 +17,21 @@ export function rankCartographyCells(cells: CartographyCell[]): CartographyCell[
 }
 
 export function cartographyStatus(cell: CartographyCell): string {
-  if (cell.simulation_status === "simulation_confirmed") return "Atomic simulation confirmed";
-  if (cell.confirmed_signals > 0) return "Quote confirmed only";
-  if (cell.evidence_tier === "venue_isolated") return "Isolated · unconfirmed";
-  return "Discovery lead only";
+  switch (cell.simulation_status) {
+    case "simulation_confirmed": return "Atomic simulation confirmed";
+    case "simulation_failed": return "Atomic simulation failed";
+    case "simulation_non_positive": return "Atomic simulation non-positive";
+    case "fingerprint_mismatch": return "Simulation fingerprint mismatch";
+    case "pending": {
+      if (cell.confirmed_signals > 0) return "Quote confirmed only · simulation pending";
+      if (cell.evidence_tier === "venue_isolated") return "Isolated · unconfirmed · simulation pending";
+      return "Discovery lead only · simulation pending";
+    }
+  }
+}
+
+export function visibleCartographyCells(cells: CartographyCell[], limit: number): CartographyCell[] {
+  return cells.slice(0, Math.max(0, limit));
 }
 
 export function rankRejections(rejections: Record<string, number>): Array<[string, number]> {

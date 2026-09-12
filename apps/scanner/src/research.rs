@@ -128,8 +128,19 @@ pub fn confirm_opportunities(
         *samples_by_market_amount
             .entry((report.quote_coin.clone(), report.amount_in))
             .or_default() += 1;
+        let mut candidates_in_sample = BTreeMap::new();
         for candidate in report.opportunities() {
             let fingerprint = fingerprint(candidate);
+            candidates_in_sample
+                .entry(fingerprint)
+                .and_modify(|current: &mut &Opportunity| {
+                    if candidate.net_profit < current.net_profit {
+                        *current = candidate;
+                    }
+                })
+                .or_insert(candidate);
+        }
+        for (fingerprint, candidate) in candidates_in_sample {
             groups
                 .entry((report.quote_coin.clone(), report.amount_in, fingerprint))
                 .or_default()
@@ -285,8 +296,25 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_candidates_in_one_sample_do_not_count_as_confirmations() {
+        let mut single_sample = report("reverse", 10);
+        single_sample
+            .candidates
+            .push(single_sample.candidates[0].clone());
+
+        assert!(confirm_opportunities(&[single_sample], 2).is_empty());
+    }
+
+    #[test]
     fn fingerprint_preserves_provider_direction_and_pool_order() {
         let original = report("reverse", 10).candidates.remove(0);
+        let mut shared_vector = original.clone();
+        shared_vector.forward.provider = "seven_k:cetus".to_owned();
+        shared_vector.reverse.provider = "seven_k:turbos".to_owned();
+        shared_vector.forward.route[0].pool_id = "forward-pool".to_owned();
+        shared_vector.reverse.route[0].pool_id = "reverse-pool".to_owned();
+        assert_eq!(fingerprint(&shared_vector), "073049580c2adcaf");
+
         let mut changed_provider = original.clone();
         changed_provider.reverse.provider = "gamma".to_owned();
         assert_ne!(fingerprint(&original), fingerprint(&changed_provider));
@@ -341,6 +369,10 @@ mod tests {
             [6, 6, 9, 6, 9, 9]
         );
         assert!(markets.iter().all(|market| market.enabled));
+        assert_eq!(
+            markets.iter().filter(|market| market.enabled).count() * DEFAULT_AMOUNTS.len(),
+            48
+        );
     }
 
     #[test]

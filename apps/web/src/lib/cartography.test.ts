@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CartographyCell, CartographyReport } from "./api";
-import { cartographyStatus, preserveCartography, rankCartographyCells, rankRejections } from "./cartography";
+import { cartographyStatus, preserveCartography, rankCartographyCells, rankRejections, visibleCartographyCells } from "./cartography";
 
 function cell(overrides: Partial<CartographyCell> = {}): CartographyCell {
   return {
@@ -43,11 +43,25 @@ describe("cartography presentation", () => {
     ]);
     expect(ranked.map((item) => item.market_symbol)).toEqual(["SIM", "ISOLATED", "DISCOVERY"]);
     expect(cartographyStatus(ranked[0])).toBe("Atomic simulation confirmed");
-    expect(cartographyStatus(ranked[1])).toBe("Isolated · unconfirmed");
+    expect(cartographyStatus(ranked[1])).toBe("Isolated · unconfirmed · simulation pending");
+  });
+
+  test("every simulation state has an explicit operator label", () => {
+    expect(cartographyStatus(cell({ simulation_status: "simulation_failed" }))).toBe("Atomic simulation failed");
+    expect(cartographyStatus(cell({ simulation_status: "simulation_non_positive" }))).toBe("Atomic simulation non-positive");
+    expect(cartographyStatus(cell({ simulation_status: "fingerprint_mismatch" }))).toBe("Simulation fingerprint mismatch");
+    expect(cartographyStatus(cell({ confirmed_signals: 1 }))).toBe("Quote confirmed only · simulation pending");
+    expect(cartographyStatus(cell())).toBe("Discovery lead only · simulation pending");
   });
 
   test("rejection histogram ranks common causes first", () => {
     expect(rankRejections({ rare: 1, common: 9 })).toEqual([["common", 9], ["rare", 1]]);
+  });
+
+  test("market map paging keeps remaining evidence reachable", () => {
+    const cells = Array.from({ length: 60 }, (_, index) => cell({ market_symbol: String(index) }));
+    expect(visibleCartographyCells(cells, 48)).toHaveLength(48);
+    expect(visibleCartographyCells(cells, 96)).toHaveLength(60);
   });
 
   test("API failure preserves prior evidence", () => {

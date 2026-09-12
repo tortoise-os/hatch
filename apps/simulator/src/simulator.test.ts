@@ -32,7 +32,9 @@ function route(params: FindRouterParams): RouterDataV3 {
 
 const builder = {
   async findRouters(params: FindRouterParams) { return route(params); },
-  async routerSwap({ inputCoin }: { inputCoin: TransactionObjectArgument; txb: Transaction }) {
+  async routerSwap({ router, inputCoin, txb }: { router: RouterDataV3; inputCoin: TransactionObjectArgument; txb: Transaction }) {
+    const marker = router.paths[0]?.id === forwardPools[0] ? "forward_swap" : "reverse_swap";
+    txb.moveCall({ target: `0x2::test_marker::${marker}` });
     return inputCoin;
   },
 };
@@ -59,11 +61,23 @@ function input(overrides: Partial<AtomicSimulationInput> = {}): AtomicSimulation
 }
 
 describe("unsigned atomic PTB", () => {
+  test("route fingerprint matches Rust golden vector", () => {
+    expect(routeFingerprint("seven_k:cetus", "seven_k:turbos", forwardPools, reversePools)).toBe("073049580c2adcaf");
+  });
+
   test("composes borrow, both swaps, repay, and profit inspection", async () => {
     const built = await buildAtomicPtb(input(), builder);
     expect(built.commandTrace).toEqual(["borrow", "forward_swap", "reverse_swap", "repay", "inspect_profit"]);
     const data = built.transaction.getData() as { commands: unknown[] };
     expect(data.commands.length).toBeGreaterThanOrEqual(8);
+    const commands = JSON.stringify(data.commands);
+    const orderedTargets = ["flash_loan", "forward_swap", "reverse_swap", "repay_flash_loan", "value"];
+    let previous = -1;
+    for (const target of orderedTargets) {
+      const position = commands.indexOf(target);
+      expect(position).toBeGreaterThan(previous);
+      previous = position;
+    }
   });
 
   test("fails closed for shared pools", async () => {

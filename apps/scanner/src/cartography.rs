@@ -49,8 +49,18 @@ struct CellAccumulator {
     cell: CartographyCell,
     best_net_profit: i128,
     worst_net_profit: i128,
-    best_simulated_delta: i128,
+    best_simulated_delta: Option<i128>,
     half_lives: Vec<u64>,
+}
+
+fn simulation_status_rank(status: &str) -> u8 {
+    match status {
+        "simulation_confirmed" => 4,
+        "simulation_non_positive" => 3,
+        "fingerprint_mismatch" => 2,
+        "simulation_failed" => 1,
+        _ => 0,
+    }
 }
 
 #[must_use]
@@ -109,7 +119,7 @@ pub fn build_cartography(
                     },
                     best_net_profit: candidate.net_profit,
                     worst_net_profit: candidate.net_profit,
-                    best_simulated_delta: 0,
+                    best_simulated_delta: None,
                     half_lives: Vec::new(),
                 });
                 entry.cell.observed_round_trips += 1;
@@ -139,12 +149,20 @@ pub fn build_cartography(
                 entry.cell.confirmation_hits += opportunity.confirmations;
                 entry.cell.confirmation_samples += opportunity.samples;
                 if let Some(simulation) = &opportunity.simulation {
-                    entry.cell.simulation_status = opportunity.simulation_status.clone();
+                    if simulation_status_rank(&opportunity.simulation_status)
+                        > simulation_status_rank(&entry.cell.simulation_status)
+                    {
+                        entry.cell.simulation_status = opportunity.simulation_status.clone();
+                    }
                     entry.cell.simulation_attempts += simulation.attempts;
                     entry.cell.positive_simulations += simulation.confirmation_count;
-                    entry.best_simulated_delta =
-                        entry.best_simulated_delta.max(simulation.balance_delta);
-                    entry.cell.measured_gas_cost = simulation.measured_gas_cost.to_string();
+                    if entry
+                        .best_simulated_delta
+                        .is_none_or(|current| simulation.balance_delta > current)
+                    {
+                        entry.best_simulated_delta = Some(simulation.balance_delta);
+                        entry.cell.measured_gas_cost = simulation.measured_gas_cost.to_string();
+                    }
                     if let Some(half_life) = simulation.elapsed_half_life_ms {
                         entry.half_lives.push(half_life);
                     }
@@ -176,7 +194,8 @@ pub fn build_cartography(
             } else {
                 Some(entry.half_lives[entry.half_lives.len() / 2])
             };
-            entry.cell.best_simulated_delta = entry.best_simulated_delta.to_string();
+            entry.cell.best_simulated_delta =
+                entry.best_simulated_delta.unwrap_or_default().to_string();
             entry.cell
         })
         .collect();
@@ -441,5 +460,22 @@ mod tests {
         assert_eq!(map.cells[0].confirmed_signals, 1);
         assert_eq!(map.cells[0].confirmation_hits, 3);
         assert_eq!(map.cells[0].evidence_tier, "venue_isolated");
+    }
+
+    #[test]
+    fn simulation_status_precedence_keeps_strongest_evidence() {
+        assert!(
+            simulation_status_rank("simulation_confirmed")
+                > simulation_status_rank("simulation_non_positive")
+        );
+        assert!(
+            simulation_status_rank("simulation_non_positive")
+                > simulation_status_rank("fingerprint_mismatch")
+        );
+        assert!(
+            simulation_status_rank("fingerprint_mismatch")
+                > simulation_status_rank("simulation_failed")
+        );
+        assert!(simulation_status_rank("simulation_failed") > simulation_status_rank("pending"));
     }
 }

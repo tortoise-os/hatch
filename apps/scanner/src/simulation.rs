@@ -273,8 +273,21 @@ pub async fn confirm_atomic_simulation(
         .find(|result| result.positive_for(&opportunity.route_fingerprint))
         .map(|result| result.observed_at_ms);
     let latest = results.last().expect("simulation evidence is never empty");
+    let fingerprint_mismatch = results.iter().any(|result| {
+        result.route_fingerprint != opportunity.route_fingerprint
+            || result
+                .rebuilt_route_fingerprint
+                .as_deref()
+                .is_some_and(|fingerprint| fingerprint != opportunity.route_fingerprint)
+            || result
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("route fingerprint mismatch"))
+    });
     let failure_reason = if confirmed {
         None
+    } else if fingerprint_mismatch {
+        Some("route_fingerprint_mismatch".to_owned())
     } else {
         Some(
             latest
@@ -285,13 +298,7 @@ pub async fn confirm_atomic_simulation(
     };
     opportunity.simulation_status = if confirmed {
         "simulation_confirmed"
-    } else if results.iter().any(|result| {
-        result.route_fingerprint != opportunity.route_fingerprint
-            || result
-                .rebuilt_route_fingerprint
-                .as_deref()
-                .is_some_and(|fingerprint| fingerprint != opportunity.route_fingerprint)
-    }) {
+    } else if fingerprint_mismatch {
         "fingerprint_mismatch"
     } else if latest.status == "non_positive" {
         "simulation_non_positive"
@@ -440,19 +447,36 @@ mod tests {
         let mut candidate = opportunity();
         confirm_atomic_simulation(&mut candidate, &simulator).await;
         assert_eq!(candidate.simulation_status, "fingerprint_mismatch");
-        assert_eq!(candidate.simulation.unwrap().confirmation_count, 1);
+        let evidence = candidate.simulation.unwrap();
+        assert_eq!(evidence.confirmation_count, 1);
+        assert_eq!(
+            evidence.failure_reason.as_deref(),
+            Some("route_fingerprint_mismatch")
+        );
+
+        let mut production_failure = result("failed", "route", 10);
+        production_failure.rebuilt_route_fingerprint = None;
+        production_failure.error =
+            Some("route fingerprint mismatch after isolated rebuild".to_owned());
+        let simulator = FixtureSimulator(Mutex::new(VecDeque::from([production_failure])));
+        let mut candidate = opportunity();
+        confirm_atomic_simulation(&mut candidate, &simulator).await;
+        assert_eq!(candidate.simulation_status, "fingerprint_mismatch");
     }
 
     #[tokio::test]
     async fn failed_or_non_positive_resimulation_prevents_promotion() {
-        for terminal in ["failed", "non_positive"] {
+        for (terminal, expected) in [
+            ("failed", "simulation_failed"),
+            ("non_positive", "simulation_non_positive"),
+        ] {
             let simulator = FixtureSimulator(Mutex::new(VecDeque::from([
                 result("positive", "route", 10),
                 result(terminal, "route", 11),
             ])));
             let mut candidate = opportunity();
             confirm_atomic_simulation(&mut candidate, &simulator).await;
-            assert_ne!(candidate.simulation_status, "simulation_confirmed");
+            assert_eq!(candidate.simulation_status, expected);
             assert_eq!(candidate.simulation.unwrap().confirmation_count, 1);
         }
     }

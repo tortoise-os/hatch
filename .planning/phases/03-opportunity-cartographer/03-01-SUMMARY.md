@@ -10,18 +10,21 @@
 - Cartography API and TortoiseOS map with negative evidence, rejection histogram, quote tier, simulation status, measured gas, survival, and half-life.
 - Unsigned Cetus CLMM flash-loan PTB composed with Cetus aggregator route builders and Sui transaction simulation.
 - Two-positive-simulation promotion gate with stable ordered-pool fingerprint and fail-closed shared-pool/builder checks.
+- Confirmation counts distinct samples, rejects duplicate venue identities, and shares one golden route-fingerprint vector across Rust and TypeScript.
+- Explicit simulation-state labels and incremental map paging keep all stored evidence reachable.
 
 ## Live Evidence
 
 - Bounded SUI/USDC run evaluated four routes and correctly rejected all: best observed gross edge was `334054` MIST, below `2000000` MIST gas reserve.
 - Restart preserved 2 research runs, 67 reports, 205 round trips, and 181 cartography cells; journal rejected 0 lines.
-- ProofShot verified desktop dark, desktop light, and 390 px mobile rendering with 0 console errors and 0 server errors.
+- ProofShot verified desktop rendering, 48→96→144→181 evidence paging, dark/light themes, and asserted 390 px mobile rendering with 0 console errors and 0 server errors.
+- Duplicate isolated source request failed closed with HTTP 400 before quote traffic.
 
 ## Verification
 
-- Rust: format, 35 tests, strict Clippy.
-- Simulator: TypeScript check and 6 tests, including success/failure Sui response fixtures.
-- Web: TypeScript check, 4 frontend tests, production build.
+- Rust: format, 38 tests, strict Clippy.
+- Simulator: TypeScript check and 7 tests, including ordered PTB commands, shared Rust fingerprint, and success/failure Sui response fixtures.
+- Web: TypeScript check, 6 frontend tests, production build.
 - Static boundary audit: no keys, signing, transaction execution, or submission in scanner/simulator/web request paths.
 
 ## Technical Sources

@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowRight, ChevronDown, Clock3, Database, Gauge, Map, P
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatAge, formatSui, scannerApi, shortId, type Candidate, type CartographyReport, type ConfirmedOpportunity, type ResearchReport, type ScanInput, type ScanReport } from "@/lib/api";
-import { cartographyStatus, preserveCartography, rankCartographyCells, rankRejections } from "@/lib/cartography";
+import { CARTOGRAPHY_PAGE_SIZE, cartographyStatus, preserveCartography, rankCartographyCells, rankRejections, visibleCartographyCells } from "@/lib/cartography";
 
 const defaults: ScanInput = {
   amount_in: "1000000000",
@@ -175,9 +175,11 @@ export function ScannerDashboard() {
 }
 
 function CartographyView({ report, onResearch }: { report: CartographyReport | null; onResearch: () => void }) {
+  const [visibleCount, setVisibleCount] = useState(CARTOGRAPHY_PAGE_SIZE);
   if (!report || report.research_runs === 0) return <div className="empty-state"><Database size={30} /><strong>No persistent market evidence yet</strong><span>Run auto research. Results will survive scanner restarts and build this map.</span><button className="button primary" onClick={onResearch}>Map markets</button></div>;
   const rejections = rankRejections(report.rejection_reasons);
   const cells = rankCartographyCells(report.cells);
+  const visibleCells = visibleCartographyCells(cells, visibleCount);
   return <div className="map-view">
     <div className="map-overview">
       <div><span>Research runs</span><strong>{report.research_runs}</strong></div>
@@ -187,7 +189,7 @@ function CartographyView({ report, onResearch }: { report: CartographyReport | n
       <div><span>Simulation confirmed</span><strong className={report.simulation_confirmed_signals ? "positive" : ""}>{report.simulation_confirmed_signals}</strong></div>
     </div>
     <div className="map-section-heading"><div><span className="eyebrow">Market × venue direction</span><h2>Evidence map</h2></div><span>Isolated evidence first · sample count shown</span></div>
-    {cells.length === 0 ? <div className="empty-state compact"><Gauge size={26} /><strong>No complete venue paths stored</strong><span>Research ran, but providers returned no comparable round trips.</span></div> : <div className="market-map">{cells.slice(0, 48).map((cell) => {
+    {cells.length === 0 ? <div className="empty-state compact"><Gauge size={26} /><strong>No complete venue paths stored</strong><span>Research ran, but providers returned no comparable round trips.</span></div> : <><div className="market-map">{visibleCells.map((cell) => {
       const bestPositive = BigInt(cell.best_net_profit) > 0n;
       const tone = cell.simulation_status === "simulation_confirmed" ? "hot" : cell.positive_quotes > 0 ? "warm" : "cold";
       const status = cartographyStatus(cell);
@@ -197,7 +199,7 @@ function CartographyView({ report, onResearch }: { report: CartographyReport | n
         <div className="map-stats"><span><strong>{(cell.positive_rate_bps / 100).toFixed(2)}%</strong> quote positive</span><span><strong>{cell.positive_quotes}/{cell.observed_round_trips}</strong> observations</span><span><strong>{cell.confirmed_signals}</strong> quote confirmed</span><span><strong>{cell.simulation_attempts ? `${(cell.simulation_survival_rate_bps / 100).toFixed(0)}%` : "—"}</strong> simulation survival</span><span><strong>{cell.median_observed_half_life_ms === null ? "—" : `${cell.median_observed_half_life_ms} ms`}</strong> median half-life</span></div>
         <div className="map-cell-foot"><span>{formatAge(cell.last_observed_at_ms)}</span><strong>{status}</strong></div>
       </article>;
-    })}</div>}
+    })}</div><div className="map-more"><span>Showing {visibleCells.length} of {cells.length} evidence cells</span>{visibleCells.length < cells.length && <button className="button secondary" onClick={() => setVisibleCount((count) => count + CARTOGRAPHY_PAGE_SIZE)}>Show more evidence</button>}</div></>}
     <section className="rejection-panel"><div><span className="eyebrow">Failed gates</span><h2>Why routes disappear</h2></div>{rejections.length === 0 ? <span>No rejection reasons stored.</span> : <div className="rejection-bars">{rejections.slice(0, 8).map(([reason, count]) => <div key={reason}><span>{reason.replaceAll("_", " ")}</span><strong>{count}</strong><i style={{ width: `${Math.max(4, (count / rejections[0][1]) * 100)}%` }} /></div>)}</div>}</section>
   </div>;
 }
@@ -223,7 +225,7 @@ function ConfirmedOpportunityRow({ opportunity, rank }: { opportunity: Confirmed
   const candidate = opportunity.representative;
   const simulation = opportunity.simulation;
   const confirmed = opportunity.simulation_status === "simulation_confirmed";
-  return <details className="candidate confirmed"><summary><div className="rank">{rank}</div><div className="route-name"><strong>SUI/{coinSymbol(opportunity.quote_coin)} · {candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span className="validation-chip">{confirmed ? "ATOMIC SIMULATION CONFIRMED" : "VENUE-ISOLATED QUOTE ONLY"} · {opportunity.confirmations}/{opportunity.samples}</span></div><div className="candidate-stat"><span>Input</span><strong>{formatSui(opportunity.amount_in)} SUI</strong></div><div className="candidate-stat"><span>{confirmed ? "Simulated delta" : "Worst quoted net"}</span><strong className={confirmed && simulation && BigInt(simulation.balance_delta) > 0n ? "positive" : ""}>{confirmed && simulation ? `${formatSui(simulation.balance_delta)} SUI` : `+${formatSui(opportunity.worst_net_profit)} SUI`}</strong></div><div className="bps"><strong>{simulation ? `${simulation.confirmation_count}/${simulation.attempts}` : candidate.net_profit_bps}</strong><span>{simulation ? "sim" : "bps"}</span></div><ChevronDown className="chevron" size={18} /></summary><div className="confirmation-evidence"><span>Best quoted +{formatSui(opportunity.best_net_profit)} SUI</span><span>Max quote skew {opportunity.max_quote_skew_ms} ms</span><span>Fingerprint {opportunity.route_fingerprint}</span><strong>Simulation {opportunity.simulation_status.replaceAll("_", " ")}</strong>{simulation && <><span>Measured gas {formatSui(simulation.measured_gas_cost)} SUI</span><span>Observed half-life {simulation.elapsed_half_life_ms ?? 0} ms</span>{simulation.failure_reason && <span>Failure: {simulation.failure_reason}</span>}</>}</div><Evidence candidate={candidate} /></details>;
+  return <details className="candidate confirmed"><summary><div className="rank">{rank}</div><div className="route-name"><strong>SUI/{coinSymbol(opportunity.quote_coin)} · {candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span className="validation-chip">{confirmed ? "ATOMIC SIMULATION CONFIRMED" : "VENUE-ISOLATED QUOTE ONLY"} · {opportunity.confirmations}/{opportunity.samples}</span></div><div className="candidate-stat"><span>Input</span><strong>{formatSui(opportunity.amount_in)} SUI</strong></div><div className="candidate-stat"><span>{confirmed ? "Simulated delta" : "Worst quoted net"}</span><strong className={confirmed && simulation && BigInt(simulation.balance_delta) > 0n ? "positive" : ""}>{confirmed && simulation ? `${formatSui(simulation.balance_delta)} SUI` : `+${formatSui(opportunity.worst_net_profit)} SUI`}</strong></div><div className="bps"><strong>{simulation ? `${simulation.confirmation_count}/${simulation.attempts}` : candidate.net_profit_bps}</strong><span>{simulation ? "sim" : "bps"}</span></div><ChevronDown className="chevron" size={18} /></summary><div className="confirmation-evidence"><span>Best quoted +{formatSui(opportunity.best_net_profit)} SUI</span><span>Max quote skew {opportunity.max_quote_skew_ms} ms</span><span>Fingerprint {opportunity.route_fingerprint}</span><strong>Simulation {opportunity.simulation_status.replaceAll("_", " ")}</strong>{simulation && <><span>Measured gas {formatSui(simulation.measured_gas_cost)} SUI</span><span>Observed half-life {simulation.elapsed_half_life_ms === null ? "—" : `${simulation.elapsed_half_life_ms} ms`}</span>{simulation.failure_reason && <span>Failure: {simulation.failure_reason}</span>}</>}</div><Evidence candidate={candidate} /></details>;
 }
 
 function coinSymbol(coinType: string) {
@@ -231,6 +233,7 @@ function coinSymbol(coinType: string) {
   if (coinType.endsWith("::cetus::CETUS")) return "CETUS";
   if (coinType.endsWith("::deep::DEEP")) return "DEEP";
   if (coinType.endsWith("::wal::WAL")) return "WAL";
+  if (coinType.endsWith("::buck::BUCK")) return "BUCK";
   if (coinType.includes("c0600061")) return "USDT";
   return shortId(coinType);
 }

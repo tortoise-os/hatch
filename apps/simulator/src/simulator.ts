@@ -331,9 +331,10 @@ export function interpretSimulation(
   const simulated = result.$kind === "Transaction" ? result.Transaction : result.FailedTransaction;
   if (!simulated) throw new Error("simulation result variant is missing payload");
   const gas = simulated.effects?.gasUsed;
-  const measuredGas = gas
+  const rawMeasuredGas = gas
     ? BigInt(gas.computationCost) + BigInt(gas.storageCost) - BigInt(gas.storageRebate)
     : 0n;
+  const measuredGas = rawMeasuredGas > 0n ? rawMeasuredGas : 0n;
   const balanceDelta = (simulated.balanceChanges ?? [])
     .filter((change) => change.coinType === SUI && change.address === input.sender)
     .reduce((sum, change) => sum + BigInt(change.amount), 0n);

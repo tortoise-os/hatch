@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +73,7 @@ impl ScannerSettings {
         if self.seven_k_sources.is_empty() {
             return Err("seven_k_sources must include at least one source".to_owned());
         }
+        validate_venue_sources(&self.seven_k_sources)?;
         Ok(())
     }
 
@@ -115,6 +116,7 @@ impl ScannerSettings {
         if venues.is_empty() {
             return Err("at least one isolated venue is required".into());
         }
+        validate_venue_sources(venues)?;
         let http = HttpClient::new(Duration::from_millis(self.timeout_ms))?;
         let providers: Vec<Arc<dyn QuoteProvider>> = venues
             .iter()
@@ -142,6 +144,20 @@ impl ScannerSettings {
     }
 }
 
+fn validate_venue_sources(venues: &[String]) -> Result<(), String> {
+    if venues.iter().any(|venue| venue.trim().is_empty()) {
+        return Err("seven_k_sources must not contain empty values".to_owned());
+    }
+    let unique: BTreeSet<_> = venues
+        .iter()
+        .map(|venue| venue.trim().to_ascii_lowercase())
+        .collect();
+    if unique.len() != venues.len() {
+        return Err("seven_k_sources must not contain duplicates".to_owned());
+    }
+    Ok(())
+}
+
 pub fn split_sources(value: &str) -> Vec<String> {
     value
         .split(',')
@@ -149,4 +165,27 @@ pub fn split_sources(value: &str) -> Vec<String> {
         .filter(|source| !source.is_empty())
         .map(ToOwned::to_owned)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_reject_duplicate_or_empty_isolated_sources() {
+        let mut settings = ScannerSettings {
+            seven_k_sources: vec!["cetus".to_owned(), "CETUS".to_owned()],
+            ..ScannerSettings::default()
+        };
+        assert_eq!(
+            settings.validate(),
+            Err("seven_k_sources must not contain duplicates".to_owned())
+        );
+
+        settings.seven_k_sources = vec![" ".to_owned()];
+        assert_eq!(
+            settings.validate(),
+            Err("seven_k_sources must not contain empty values".to_owned())
+        );
+    }
 }

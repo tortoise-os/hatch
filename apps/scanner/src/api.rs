@@ -322,7 +322,7 @@ async fn run_research(
     State(state): State<ApiState>,
     Json(request): Json<ResearchRequest>,
 ) -> Result<Json<ResearchReport>, ApiError> {
-    let permit = state.scan_lock.clone().try_acquire_owned().map_err(|_| {
+    let _permit = state.scan_lock.clone().try_acquire_owned().map_err(|_| {
         ApiError(
             StatusCode::CONFLICT,
             "scan_in_progress",
@@ -360,7 +360,6 @@ async fn run_research(
             confirm_atomic_simulation(opportunity, simulator.as_ref()).await;
         }
     }
-    drop(permit);
     let discovery_report_count = discovery_reports.len();
     let venue_isolated_report_count = isolated_reports.len();
     let venues_tested = if isolated_reports.is_empty() {
