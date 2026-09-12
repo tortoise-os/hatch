@@ -162,7 +162,7 @@ bun run dev:scanner
 bun run dev:web
 ```
 
-Open `http://127.0.0.1:3410`. Dashboard is operator-only and read-only: it requests live quotes and displays route evidence but cannot construct, sign, or submit transactions.
+Open `http://127.0.0.1:3410`. Dashboard is operator-only and read-only. It requests live quotes, persists route evidence, and can optionally dry-run unsigned atomic PTBs. It has no private-key, signing, or transaction-submission path.
 
 ### Available Commands
 

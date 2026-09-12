@@ -56,6 +56,11 @@ impl SevenKProvider {
             sources,
         }
     }
+
+    #[must_use]
+    pub fn sources(&self) -> &[String] {
+        &self.sources
+    }
 }
 
 #[async_trait]
@@ -238,14 +243,17 @@ mod tests {
     }
 
     #[test]
-    fn isolated_provider_keeps_venue_identity() {
+    fn isolated_providers_keep_distinct_identity_and_one_source() {
         let http = HttpClient::new(std::time::Duration::from_secs(1)).unwrap();
-        let provider = SevenKProvider::new_named(
-            "seven_k:deepbook_v3",
-            http,
-            DEFAULT_ENDPOINT,
-            vec!["deepbook_v3".to_owned()],
-        );
-        assert_eq!(provider.name(), "seven_k:deepbook_v3");
+        for venue in ["cetus", "turbos", "deepbook_v3"] {
+            let provider = SevenKProvider::new_named(
+                format!("seven_k:{venue}"),
+                http.clone(),
+                DEFAULT_ENDPOINT,
+                vec![venue.to_owned()],
+            );
+            assert_eq!(provider.name(), format!("seven_k:{venue}"));
+            assert_eq!(provider.sources(), [venue]);
+        }
     }
 }

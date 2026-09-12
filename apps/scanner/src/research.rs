@@ -14,23 +14,72 @@ pub const DEFAULT_AMOUNTS: [u128; 8] = [
     10_000_000_000,
     25_000_000_000,
 ];
-pub const DEFAULT_MARKETS: [&str; 6] = [
-    "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
-    "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN",
-    "0x06864a6f921804860930db6ddbe2e16acdf8504495ea7481637a1c8b9a8fe54b::cetus::CETUS",
-    "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
-    "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL",
-    "0xce7ff77a83ea0cb6fd39bd8748e2ec89a3f41e8efdc3f4eb123e0ca37b184db2::buck::BUCK",
-];
+const USDC: &str = "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
+const USDT: &str = "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN";
+const CETUS: &str =
+    "0x06864a6f921804860930db6ddbe2e16acdf8504495ea7481637a1c8b9a8fe54b::cetus::CETUS";
+const DEEP: &str = "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP";
+const WAL: &str = "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL";
+const BUCK: &str = "0xce7ff77a83ea0cb6fd39bd8748e2ec89a3f41e8efdc3f4eb123e0ca37b184db2::buck::BUCK";
 pub const MAX_AMOUNTS: usize = 12;
 pub const MAX_MARKETS: usize = 12;
 pub const CONFIRMATION_RUNS: usize = 3;
 pub const MIN_CONFIRMATIONS: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketDefinition {
+    pub symbol: String,
+    pub coin_type: String,
+    pub decimals: u8,
+    pub enabled: bool,
+}
+
+#[must_use]
+pub fn default_market_registry() -> Vec<MarketDefinition> {
+    [
+        ("USDC", USDC, 6),
+        ("USDT", USDT, 6),
+        ("CETUS", CETUS, 9),
+        ("DEEP", DEEP, 6),
+        ("WAL", WAL, 9),
+        ("BUCK", BUCK, 9),
+    ]
+    .into_iter()
+    .map(|(symbol, coin_type, decimals)| MarketDefinition {
+        symbol: symbol.to_owned(),
+        coin_type: coin_type.to_owned(),
+        decimals,
+        enabled: true,
+    })
+    .collect()
+}
+
+pub fn validate_market_registry(markets: &[MarketDefinition]) -> Result<(), &'static str> {
+    if markets.is_empty() {
+        return Err("market registry must not be empty");
+    }
+    if markets
+        .iter()
+        .any(|market| market.coin_type.trim().is_empty())
+    {
+        return Err("market coin types must not be empty");
+    }
+    let unique = markets
+        .iter()
+        .map(|market| market.coin_type.trim())
+        .collect::<std::collections::BTreeSet<_>>();
+    if unique.len() != markets.len() {
+        return Err("market coin types must not contain duplicates");
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfirmedOpportunity {
     pub validation_tier: String,
     pub simulation_status: String,
+    #[serde(default)]
+    pub simulation: Option<crate::simulation::AtomicSimulationEvidence>,
     pub route_fingerprint: String,
     #[serde(with = "crate::model::u128_string")]
     pub amount_in: u128,
@@ -52,6 +101,8 @@ pub struct ResearchReport {
     #[serde(with = "crate::model::u128_vec_string")]
     pub amounts_tested: Vec<u128>,
     pub markets_tested: Vec<String>,
+    #[serde(default)]
+    pub market_metadata: Vec<MarketDefinition>,
     pub routes_evaluated: usize,
     pub provider_failures: usize,
     pub confirmation_runs: usize,
@@ -103,6 +154,7 @@ pub fn confirm_opportunities(
             Some(ConfirmedOpportunity {
                 validation_tier: "venue_isolated_quote_confirmed".to_owned(),
                 simulation_status: "pending".to_owned(),
+                simulation: None,
                 route_fingerprint,
                 amount_in,
                 quote_coin: quote_coin.clone(),
@@ -125,6 +177,19 @@ pub fn confirm_opportunities(
             .then_with(|| left.route_fingerprint.cmp(&right.route_fingerprint))
     });
     confirmed
+}
+
+#[must_use]
+pub fn positive_market_amount_pairs(reports: &[ScanReport]) -> BTreeMap<(String, u128), usize> {
+    let mut pairs = BTreeMap::new();
+    for report in reports {
+        if report.opportunities().next().is_some() {
+            *pairs
+                .entry((report.quote_coin.clone(), report.amount_in))
+                .or_default() += 1;
+        }
+    }
+    pairs
 }
 
 fn fingerprint(candidate: &Opportunity) -> String {
@@ -217,5 +282,76 @@ mod tests {
         assert_eq!(confirmed[0].samples, 3);
         assert_eq!(confirmed[0].worst_net_profit, 8);
         assert_eq!(confirmed[0].best_net_profit, 12);
+    }
+
+    #[test]
+    fn fingerprint_preserves_provider_direction_and_pool_order() {
+        let original = report("reverse", 10).candidates.remove(0);
+        let mut changed_provider = original.clone();
+        changed_provider.reverse.provider = "gamma".to_owned();
+        assert_ne!(fingerprint(&original), fingerprint(&changed_provider));
+
+        let mut changed_order = original.clone();
+        changed_order.forward.route.push(RouteHop {
+            route_index: 0,
+            venue: "alpha".to_owned(),
+            pool_id: "second".to_owned(),
+            coin_in: "A".to_owned(),
+            coin_out: "B".to_owned(),
+        });
+        let ordered = fingerprint(&changed_order);
+        changed_order.forward.route.swap(0, 1);
+        assert_ne!(ordered, fingerprint(&changed_order));
+    }
+
+    #[test]
+    fn registry_rejects_duplicate_and_empty_coin_types() {
+        let mut markets = default_market_registry();
+        assert!(validate_market_registry(&markets).is_ok());
+
+        let duplicate = markets[0].coin_type.clone();
+        markets[1].coin_type = duplicate;
+        assert_eq!(
+            validate_market_registry(&markets),
+            Err("market coin types must not contain duplicates")
+        );
+
+        markets[1].coin_type.clear();
+        assert_eq!(
+            validate_market_registry(&markets),
+            Err("market coin types must not be empty")
+        );
+    }
+
+    #[test]
+    fn default_registry_contains_required_verified_metadata() {
+        let markets = default_market_registry();
+        assert_eq!(
+            markets
+                .iter()
+                .map(|market| market.symbol.as_str())
+                .collect::<Vec<_>>(),
+            ["USDC", "USDT", "CETUS", "DEEP", "WAL", "BUCK"]
+        );
+        assert_eq!(
+            markets
+                .iter()
+                .map(|market| market.decimals)
+                .collect::<Vec<_>>(),
+            [6, 6, 9, 6, 9, 9]
+        );
+        assert!(markets.iter().all(|market| market.enabled));
+    }
+
+    #[test]
+    fn only_positive_discovery_pairs_advance() {
+        let positive = report("positive", 10);
+        let mut rejected = report("negative", -10);
+        rejected.quote_coin = "C".to_owned();
+        rejected.amount_in = 2_000;
+        rejected.candidates[0].meets_threshold = false;
+        let pairs = positive_market_amount_pairs(&[positive, rejected]);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs.get(&("B".to_owned(), 1_000)), Some(&1));
     }
 }

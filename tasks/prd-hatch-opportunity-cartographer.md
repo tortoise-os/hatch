@@ -42,11 +42,11 @@ Primary user: TortoiseOS operator deciding which markets and venue integrations 
 
 **Acceptance Criteria:**
 
-- [ ] Test: registry rejects duplicate or empty coin types in `apps/scanner/src/research.rs`.
-- [ ] Registry contains symbol, coin type, decimals, and enabled state for each default market.
-- [ ] Default research covers at least USDC, USDT, CETUS, DEEP, WAL, and BUCK.
-- [ ] API returns markets tested as explicit metadata.
-- [ ] Targeted Rust tests pass.
+- [x] Test: registry rejects duplicate or empty coin types in `apps/scanner/src/research.rs`.
+- [x] Registry contains symbol, coin type, decimals, and enabled state for each default market.
+- [x] Default research covers at least USDC, USDT, CETUS, DEEP, WAL, and BUCK.
+- [x] API returns markets tested as explicit metadata.
+- [x] Targeted Rust tests pass.
 
 Mark each item [x] as completed. Close only when all items pass.
 
@@ -56,13 +56,13 @@ Mark each item [x] as completed. Close only when all items pass.
 
 **Acceptance Criteria:**
 
-- [ ] Test: provider identities remain distinct for `seven_k:cetus`, `seven_k:turbos`, and `seven_k:deepbook_v3`.
-- [ ] Broad discovery scans configured market × amount matrix.
-- [ ] Only positive discovery market/size pairs advance to isolated stage.
-- [ ] Each isolated provider sends exactly one source restriction.
-- [ ] Confirmation groups require stable provider direction and ordered pool IDs.
-- [ ] Promoted tier equals `venue_isolated_quote_confirmed`.
-- [ ] Targeted Rust tests pass.
+- [x] Test: provider identities remain distinct for `seven_k:cetus`, `seven_k:turbos`, and `seven_k:deepbook_v3`.
+- [x] Broad discovery scans configured market × amount matrix.
+- [x] Only positive discovery market/size pairs advance to isolated stage.
+- [x] Each isolated provider sends exactly one source restriction.
+- [x] Confirmation groups require stable provider direction and ordered pool IDs.
+- [x] Promoted tier equals `venue_isolated_quote_confirmed`.
+- [x] Targeted Rust tests pass.
 
 Mark each item [x] as completed. Close only when all items pass.
 
@@ -72,13 +72,13 @@ Mark each item [x] as completed. Close only when all items pass.
 
 **Acceptance Criteria:**
 
-- [ ] Test: append then reload preserves research report atomic values and route evidence.
-- [ ] Test: malformed JSONL line is counted and does not prevent valid history loading.
-- [ ] Completed research appends one JSON object per line to configurable local path.
-- [ ] API startup loads bounded recent research history.
-- [ ] Health/config response exposes persistence mode, retained run count, and rejected-line count.
-- [ ] Runtime journal data is ignored by git.
-- [ ] Restart contract check returns prior report-derived cartography.
+- [x] Test: append then reload preserves research report atomic values and route evidence.
+- [x] Test: malformed JSONL line is counted and does not prevent valid history loading.
+- [x] Completed research appends one JSON object per line to configurable local path.
+- [x] API startup loads bounded recent research history.
+- [x] Health/config response exposes persistence mode, retained run count, and rejected-line count.
+- [x] Runtime journal data is ignored by git.
+- [x] Restart contract check returns prior report-derived cartography.
 
 Mark each item [x] as completed. Close only when all items pass.
 
@@ -88,13 +88,13 @@ Mark each item [x] as completed. Close only when all items pass.
 
 **Acceptance Criteria:**
 
-- [ ] Test: aggregation groups by quote coin, evidence tier, forward venue path, and reverse venue path.
-- [ ] Test: aggregation calculates observed count, positive count, positive-rate bps, best/worst net, best size, and last observation.
-- [ ] Test: confirmed opportunity increments confirmation hits and signal count for matching cell.
-- [ ] `GET /api/cartography` returns stable typed JSON.
-- [ ] Response includes rejection-reason histogram.
-- [ ] Every cell returns `simulation_status: pending` until simulation exists.
-- [ ] Endpoint contract check returns HTTP 200 with empty valid state before first run.
+- [x] Test: aggregation groups by quote coin, evidence tier, forward venue path, and reverse venue path.
+- [x] Test: aggregation calculates observed count, positive count, positive-rate bps, best/worst net, best size, and last observation.
+- [x] Test: confirmed opportunity increments confirmation hits and signal count for matching cell.
+- [x] `GET /api/cartography` returns stable typed JSON.
+- [x] Response includes rejection-reason histogram.
+- [x] Every cell returns `simulation_status: pending` until simulation exists.
+- [x] Endpoint contract check returns HTTP 200 with empty valid state before first run.
 
 Mark each item [x] as completed. Close only when all items pass.
 
@@ -104,13 +104,13 @@ Mark each item [x] as completed. Close only when all items pass.
 
 **Acceptance Criteria:**
 
-- [ ] Contract type in `apps/web/src/lib/api.ts` matches cartography response.
-- [ ] Scanner fetches history and cartography concurrently.
-- [ ] Market map shows market, forward/reverse venues, evidence tier, sample count, positive rate, confirmed signals, best net, best size, age, and simulation status.
-- [ ] Empty map explains that stored research is required.
-- [ ] Rejection histogram shows why routes fail.
-- [ ] Existing Opportunities, Evaluated, Routes, Failures, and History views remain usable.
-- [ ] Browser verification passes at desktop and mobile widths with zero console errors.
+- [x] Contract type in `apps/web/src/lib/api.ts` matches cartography response.
+- [x] Scanner fetches history and cartography concurrently.
+- [x] Market map shows market, forward/reverse venues, evidence tier, sample count, positive rate, confirmed signals, best net, best size, age, and simulation status.
+- [x] Empty map explains that stored research is required.
+- [x] Rejection histogram shows why routes fail.
+- [x] Existing Opportunities, Evaluated, Routes, Failures, and History views remain usable.
+- [x] Browser verification passes at desktop and mobile widths with zero console errors.
 
 Mark each item [x] as completed. Close only when all items pass.
 
@@ -120,13 +120,13 @@ Mark each item [x] as completed. Close only when all items pass.
 
 **Acceptance Criteria:**
 
-- [ ] Test: builder composes borrow, forward swap, reverse swap, repay, and profit balance inspection in one PTB.
-- [ ] Test: shared-pool and missing-builder routes fail closed before simulation.
-- [ ] Simulation requests effects, balance changes, and command results.
-- [ ] Gas comes from simulation output, replacing fixed reserve for this tier.
-- [ ] Candidate advances only when balance delta is positive after all fees.
-- [ ] Code path contains no private key, signer, `signAndExecuteTransaction`, or transaction submission.
-- [ ] Integration fixture covers successful and failed simulation responses.
+- [x] Test: builder composes borrow, forward swap, reverse swap, repay, and profit balance inspection in one PTB.
+- [x] Test: shared-pool and missing-builder routes fail closed before simulation.
+- [x] Simulation requests effects, balance changes, and command results.
+- [x] Gas comes from simulation output, replacing fixed reserve for this tier.
+- [x] Candidate advances only when balance delta is positive after all fees.
+- [x] Code path contains no private key, signer, `signAndExecuteTransaction`, or transaction submission.
+- [x] Integration fixture covers successful and failed simulation responses.
 
 Mark each item [x] as completed. Close only when all items pass.
 
@@ -136,12 +136,12 @@ Mark each item [x] as completed. Close only when all items pass.
 
 **Acceptance Criteria:**
 
-- [ ] Test: route fingerprint mismatch prevents promotion.
-- [ ] Test: one failed or non-positive re-simulation prevents `simulation_confirmed` status.
-- [ ] Store first-seen, last-positive, confirmation count, and elapsed half-life evidence.
-- [ ] Promote only after two positive atomic simulations using same route fingerprint.
-- [ ] Cartography exposes simulation survival rate and median observed half-life.
-- [ ] Integration tests pass against deterministic simulation fixtures.
+- [x] Test: route fingerprint mismatch prevents promotion.
+- [x] Test: one failed or non-positive re-simulation prevents `simulation_confirmed` status.
+- [x] Store first-seen, last-positive, confirmation count, and elapsed half-life evidence.
+- [x] Promote only after two positive atomic simulations using same route fingerprint.
+- [x] Cartography exposes simulation survival rate and median observed half-life.
+- [x] Integration tests pass against deterministic simulation fixtures.
 
 Mark each item [x] as completed. Close only when all items pass.
 
@@ -149,38 +149,38 @@ Mark each item [x] as completed. Close only when all items pass.
 
 ### Unit Tests
 
-- [ ] Market and amount validation.
-- [ ] Route fingerprint stability.
-- [ ] Shared-liquidity rejection.
-- [ ] Cartography grouping and rates.
-- [ ] JSONL recovery behavior.
-- [ ] Conservative net-profit calculation.
+- [x] Market and amount validation.
+- [x] Route fingerprint stability.
+- [x] Shared-liquidity rejection.
+- [x] Cartography grouping and rates.
+- [x] JSONL recovery behavior.
+- [x] Conservative net-profit calculation.
 
 ### Contract Tests
 
-- [ ] Cetus response parser fixtures.
-- [ ] 7K response parser fixtures and isolated provider identity.
-- [ ] `/api/research` staged response shape.
-- [ ] `/api/cartography` empty and populated response shapes.
-- [ ] Sui simulation response fixtures.
+- [x] Cetus response parser fixtures.
+- [x] 7K response parser fixtures and isolated provider identity.
+- [x] `/api/research` staged response shape.
+- [x] `/api/cartography` empty and populated response shapes.
+- [x] Sui simulation response fixtures.
 
 ### Integration Tests
 
-- [ ] Research run → journal append → service reload → same cartography.
-- [ ] Positive discovery → isolated confirmation → map cell.
-- [ ] Quote-confirmed route → PTB build → two simulations → promotion/rejection.
+- [x] Research run → journal append → service reload → same cartography.
+- [x] Positive discovery → isolated confirmation → map cell.
+- [x] Quote-confirmed route → PTB build → two simulations → promotion/rejection.
 
 ### Frontend Tests
 
-- [ ] Empty cartography state.
-- [ ] Populated market map ordering and status labels.
-- [ ] Rejection histogram.
-- [ ] API failure preserves prior evidence.
+- [x] Empty cartography state.
+- [x] Populated market map ordering and status labels.
+- [x] Rejection histogram.
+- [x] API failure preserves prior evidence.
 
 ### E2E Tests
 
-- [ ] Start scanner and web app, run bounded research, inspect map, restart scanner, verify persistence.
-- [ ] Confirm no wallet, signing, submit, or execute control appears.
+- [x] Start scanner and web app, run bounded research, inspect map, restart scanner, verify persistence.
+- [x] Confirm no wallet, signing, submit, or execute control appears.
 
 Deployment classification:
 

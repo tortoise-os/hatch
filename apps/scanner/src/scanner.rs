@@ -373,6 +373,41 @@ mod tests {
         assert_eq!(stale.rejection_reasons, ["quote_observation_skew_too_high"]);
     }
 
+    #[test]
+    fn conservative_net_profit_subtracts_full_gas_reserve() {
+        let forward = Quote {
+            provider: "alpha".to_owned(),
+            coin_in: "SUI".to_owned(),
+            coin_out: "USDC".to_owned(),
+            amount_in: 1_000,
+            amount_out: 2_000,
+            quote_id: None,
+            route: vec![RouteHop {
+                route_index: 0,
+                venue: "alpha".to_owned(),
+                pool_id: "forward".to_owned(),
+                coin_in: "SUI".to_owned(),
+                coin_out: "USDC".to_owned(),
+            }],
+            estimated_gas_cost: None,
+            observed_at_ms: 1,
+            latency_ms: 1,
+        };
+        let mut reverse = forward.clone();
+        reverse.provider = "beta".to_owned();
+        reverse.coin_in = "USDC".to_owned();
+        reverse.coin_out = "SUI".to_owned();
+        reverse.amount_in = 2_000;
+        reverse.amount_out = 1_025;
+        reverse.route[0].pool_id = "reverse".to_owned();
+
+        let candidate = score(forward, reverse, 1_000, 20, 1, 100).unwrap();
+        assert_eq!(candidate.gross_profit, 25);
+        assert_eq!(candidate.gas_cost, 20);
+        assert_eq!(candidate.net_profit, 5);
+        assert_eq!(candidate.net_profit_bps, 50);
+    }
+
     #[tokio::test]
     async fn scanner_ranks_profitable_and_losing_round_trips() {
         let alpha = Arc::new(MockProvider::new(

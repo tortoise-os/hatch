@@ -1,0 +1,21 @@
+{
+  "$kind": "Transaction",
+  "Transaction": {
+    "status": { "success": true, "error": null },
+    "effects": {
+      "gasUsed": {
+        "computationCost": "10",
+        "storageCost": "5",
+        "storageRebate": "2"
+      }
+    },
+    "balanceChanges": [
+      {
+        "coinType": "0x2::sui::SUI",
+        "address": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "amount": "7"
+      }
+    ]
+  },
+  "commandResults": [{}, {}, {}, {}, {}]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "@hatch/simulator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src"
+  },
+  "dependencies": {
+    "@cetusprotocol/aggregator-sdk": "^1.6.1",
+    "@mysten/sui": "^2.16.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.10",
+    "typescript": "^5.7.0"
+  }
+}

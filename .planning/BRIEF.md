@@ -1,5 +1,5 @@
 # Hatch Sui Scanner Brief
 
-Build read-only Sui arbitrage intelligence before any executor. Produce live, auditable SUI/USDC round-trip candidate records from two independent quote services. Protect user funds by excluding keys, signing, PTBs, and submission from scanner process.
+Build read-only Sui arbitrage intelligence before any executor. Produce live, auditable round-trip evidence across curated Sui markets from two independent quote services. Protect user funds by excluding keys, signing, and submission from scanner process.
 
-First release targets one-shot Rust CLI operation, exact integer arithmetic, bounded network behavior, JSONL output, and deterministic tests. Later releases may add direct on-chain pool and order-book state, persistence, alerts, simulation, then separately reviewed execution.
+Current release adds persistent market × venue cartography and optional unsigned atomic PTB simulation. Simulation composes borrow, swaps, repayment, and profit inspection, but can only call Sui dry-run APIs. Direct on-chain state, alerts, and any separately reviewed executor remain later work.

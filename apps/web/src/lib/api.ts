@@ -81,7 +81,8 @@ export type ScanInput = {
 
 export type ConfirmedOpportunity = {
   validation_tier: "venue_isolated_quote_confirmed";
-  simulation_status: "pending";
+  simulation_status: "pending" | "simulation_confirmed" | "simulation_failed" | "simulation_non_positive" | "fingerprint_mismatch";
+  simulation: AtomicSimulationEvidence | null;
   route_fingerprint: string;
   amount_in: string;
   quote_coin: string;
@@ -93,11 +94,39 @@ export type ConfirmedOpportunity = {
   representative: Candidate;
 };
 
+export type AtomicSimulationResult = {
+  status: "positive" | "non_positive" | "failed";
+  route_fingerprint: string;
+  rebuilt_route_fingerprint: string | null;
+  observed_at_ms: number;
+  measured_gas_cost: string;
+  balance_delta: string;
+  command_results: number;
+  effects_requested: boolean;
+  balance_changes_requested: boolean;
+  command_results_requested: boolean;
+  command_trace: string[];
+  error: string | null;
+};
+
+export type AtomicSimulationEvidence = {
+  first_seen_at_ms: number;
+  last_positive_at_ms: number | null;
+  confirmation_count: number;
+  attempts: number;
+  elapsed_half_life_ms: number | null;
+  measured_gas_cost: string;
+  balance_delta: string;
+  failure_reason: string | null;
+  results: AtomicSimulationResult[];
+};
+
 export type ResearchReport = {
   schema_version: number;
   observed_at_ms: number;
   amounts_tested: string[];
   markets_tested: string[];
+  market_metadata: MarketDefinition[];
   routes_evaluated: number;
   provider_failures: number;
   confirmation_runs: number;
@@ -106,6 +135,13 @@ export type ResearchReport = {
   venues_tested: string[];
   opportunities: ConfirmedOpportunity[];
   reports: ScanReport[];
+};
+
+export type MarketDefinition = {
+  symbol: string;
+  coin_type: string;
+  decimals: number;
+  enabled: boolean;
 };
 
 export type CartographyCell = {
@@ -124,7 +160,13 @@ export type CartographyCell = {
   worst_net_profit: string;
   best_amount_in: string;
   last_observed_at_ms: number;
-  simulation_status: "pending";
+  simulation_status: "pending" | "simulation_confirmed" | "simulation_failed" | "simulation_non_positive" | "fingerprint_mismatch";
+  simulation_attempts: number;
+  positive_simulations: number;
+  simulation_survival_rate_bps: number;
+  median_observed_half_life_ms: number | null;
+  best_simulated_delta: string;
+  measured_gas_cost: string;
 };
 
 export type CartographyReport = {
@@ -134,12 +176,13 @@ export type CartographyReport = {
   scan_reports: number;
   observed_round_trips: number;
   confirmed_signals: number;
+  simulation_confirmed_signals: number;
   journal_rejected_lines: number;
   cells: CartographyCell[];
   rejection_reasons: Record<string, number>;
 };
 
-export type ResearchInput = Omit<ScanInput, "amount_in" | "quote_coin"> & { amounts?: string[]; markets?: string[] };
+export type ResearchInput = Omit<ScanInput, "amount_in" | "quote_coin"> & { amounts?: string[]; markets?: MarketDefinition[] };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, { cache: "no-store", ...init });

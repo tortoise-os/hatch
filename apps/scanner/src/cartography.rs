@@ -21,7 +21,13 @@ pub struct CartographyCell {
     pub worst_net_profit: String,
     pub best_amount_in: String,
     pub last_observed_at_ms: u64,
-    pub simulation_status: &'static str,
+    pub simulation_status: String,
+    pub simulation_attempts: usize,
+    pub positive_simulations: usize,
+    pub simulation_survival_rate_bps: usize,
+    pub median_observed_half_life_ms: Option<u64>,
+    pub best_simulated_delta: String,
+    pub measured_gas_cost: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -32,6 +38,7 @@ pub struct CartographyReport {
     pub scan_reports: usize,
     pub observed_round_trips: usize,
     pub confirmed_signals: usize,
+    pub simulation_confirmed_signals: usize,
     pub journal_rejected_lines: usize,
     pub cells: Vec<CartographyCell>,
     pub rejection_reasons: BTreeMap<String, usize>,
@@ -42,6 +49,8 @@ struct CellAccumulator {
     cell: CartographyCell,
     best_net_profit: i128,
     worst_net_profit: i128,
+    best_simulated_delta: i128,
+    half_lives: Vec<u64>,
 }
 
 #[must_use]
@@ -54,6 +63,7 @@ pub fn build_cartography(
     let mut rejection_reasons = BTreeMap::new();
     let mut scan_reports = 0;
     let mut observed_round_trips = 0;
+    let mut simulation_confirmed_signals = 0;
 
     for research in reports {
         scan_reports += research.reports.len();
@@ -75,7 +85,7 @@ pub fn build_cartography(
                 let entry = cells.entry(key).or_insert_with(|| CellAccumulator {
                     cell: CartographyCell {
                         quote_coin: report.quote_coin.clone(),
-                        market_symbol: market_symbol(&report.quote_coin),
+                        market_symbol: market_symbol(research, &report.quote_coin),
                         evidence_tier,
                         forward_venues,
                         reverse_venues,
@@ -89,10 +99,18 @@ pub fn build_cartography(
                         worst_net_profit: String::new(),
                         best_amount_in: report.amount_in.to_string(),
                         last_observed_at_ms: report.observed_at_ms,
-                        simulation_status: "pending",
+                        simulation_status: "pending".to_owned(),
+                        simulation_attempts: 0,
+                        positive_simulations: 0,
+                        simulation_survival_rate_bps: 0,
+                        median_observed_half_life_ms: None,
+                        best_simulated_delta: "0".to_owned(),
+                        measured_gas_cost: "0".to_owned(),
                     },
                     best_net_profit: candidate.net_profit,
                     worst_net_profit: candidate.net_profit,
+                    best_simulated_delta: 0,
+                    half_lives: Vec::new(),
                 });
                 entry.cell.observed_round_trips += 1;
                 entry.cell.positive_quotes += usize::from(candidate.meets_threshold);
@@ -107,6 +125,8 @@ pub fn build_cartography(
         }
 
         for opportunity in &research.opportunities {
+            simulation_confirmed_signals +=
+                usize::from(opportunity.simulation_status == "simulation_confirmed");
             let candidate = &opportunity.representative;
             let key = (
                 opportunity.quote_coin.clone(),
@@ -118,6 +138,17 @@ pub fn build_cartography(
                 entry.cell.confirmed_signals += 1;
                 entry.cell.confirmation_hits += opportunity.confirmations;
                 entry.cell.confirmation_samples += opportunity.samples;
+                if let Some(simulation) = &opportunity.simulation {
+                    entry.cell.simulation_status = opportunity.simulation_status.clone();
+                    entry.cell.simulation_attempts += simulation.attempts;
+                    entry.cell.positive_simulations += simulation.confirmation_count;
+                    entry.best_simulated_delta =
+                        entry.best_simulated_delta.max(simulation.balance_delta);
+                    entry.cell.measured_gas_cost = simulation.measured_gas_cost.to_string();
+                    if let Some(half_life) = simulation.elapsed_half_life_ms {
+                        entry.half_lives.push(half_life);
+                    }
+                }
             }
         }
     }
@@ -133,6 +164,19 @@ pub fn build_cartography(
                 .unwrap_or_default();
             entry.cell.best_net_profit = entry.best_net_profit.to_string();
             entry.cell.worst_net_profit = entry.worst_net_profit.to_string();
+            entry.cell.simulation_survival_rate_bps = entry
+                .cell
+                .positive_simulations
+                .saturating_mul(10_000)
+                .checked_div(entry.cell.simulation_attempts)
+                .unwrap_or_default();
+            entry.half_lives.sort_unstable();
+            entry.cell.median_observed_half_life_ms = if entry.half_lives.is_empty() {
+                None
+            } else {
+                Some(entry.half_lives[entry.half_lives.len() / 2])
+            };
+            entry.cell.best_simulated_delta = entry.best_simulated_delta.to_string();
             entry.cell
         })
         .collect();
@@ -152,14 +196,14 @@ pub fn build_cartography(
             })
     });
     let confirmed_signals = cells.iter().map(|cell| cell.confirmed_signals).sum();
-
     CartographyReport {
-        schema_version: 1,
+        schema_version: 2,
         generated_at_ms,
         research_runs: reports.len(),
         scan_reports,
         observed_round_trips,
         confirmed_signals,
+        simulation_confirmed_signals,
         journal_rejected_lines,
         cells,
         rejection_reasons,
@@ -200,7 +244,14 @@ fn venue_path(candidate: &Opportunity, forward: bool) -> String {
     }
 }
 
-fn market_symbol(coin_type: &str) -> String {
+fn market_symbol(research: &ResearchReport, coin_type: &str) -> String {
+    if let Some(market) = research
+        .market_metadata
+        .iter()
+        .find(|market| market.coin_type == coin_type)
+    {
+        return market.symbol.clone();
+    }
     if coin_type.contains("0xc0600061") {
         return "USDT".to_owned();
     }
@@ -215,7 +266,10 @@ fn market_symbol(coin_type: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ConfirmedOpportunity, Quote, RouteHop, ScanReport};
+    use crate::{
+        AtomicSimulationEvidence, AtomicSimulationResult, ConfirmedOpportunity, Quote, RouteHop,
+        ScanReport,
+    };
 
     fn quote(provider: &str, venue: &str, pool: &str) -> Quote {
         Quote {
@@ -263,10 +317,11 @@ mod tests {
     fn groups_directional_venue_evidence_and_confirmation_rates() {
         let positive = candidate(10, true);
         let research = ResearchReport {
-            schema_version: 2,
+            schema_version: 3,
             observed_at_ms: 2,
             amounts_tested: vec![1_000],
             markets_tested: vec!["package::coin::TEST".to_owned()],
+            market_metadata: Vec::new(),
             routes_evaluated: 2,
             provider_failures: 0,
             confirmation_runs: 3,
@@ -275,7 +330,31 @@ mod tests {
             venues_tested: vec!["cetus".to_owned(), "turbos".to_owned()],
             opportunities: vec![ConfirmedOpportunity {
                 validation_tier: "venue_isolated_quote_confirmed".to_owned(),
-                simulation_status: "pending".to_owned(),
+                simulation_status: "simulation_confirmed".to_owned(),
+                simulation: Some(AtomicSimulationEvidence {
+                    first_seen_at_ms: 10,
+                    last_positive_at_ms: Some(16),
+                    confirmation_count: 2,
+                    attempts: 2,
+                    elapsed_half_life_ms: Some(6),
+                    measured_gas_cost: 7,
+                    balance_delta: 3,
+                    failure_reason: None,
+                    results: vec![AtomicSimulationResult {
+                        status: "positive".to_owned(),
+                        route_fingerprint: "route".to_owned(),
+                        rebuilt_route_fingerprint: Some("route".to_owned()),
+                        observed_at_ms: 10,
+                        measured_gas_cost: 7,
+                        balance_delta: 3,
+                        command_results: 5,
+                        effects_requested: true,
+                        balance_changes_requested: true,
+                        command_results_requested: true,
+                        command_trace: Vec::new(),
+                        error: None,
+                    }],
+                }),
                 route_fingerprint: "route".to_owned(),
                 amount_in: 1_000,
                 quote_coin: "package::coin::TEST".to_owned(),
@@ -312,8 +391,55 @@ mod tests {
         assert_eq!(cell.confirmed_signals, 1);
         assert_eq!(cell.confirmation_hits, 2);
         assert_eq!(cell.confirmation_samples, 3);
+        assert_eq!(cell.simulation_status, "simulation_confirmed");
+        assert_eq!(cell.simulation_attempts, 2);
+        assert_eq!(cell.positive_simulations, 2);
+        assert_eq!(cell.simulation_survival_rate_bps, 10_000);
+        assert_eq!(cell.median_observed_half_life_ms, Some(6));
+        assert_eq!(cell.best_simulated_delta, "3");
+        assert_eq!(cell.measured_gas_cost, "7");
         assert_eq!(cell.best_net_profit, "10");
         assert_eq!(cell.worst_net_profit, "-5");
         assert_eq!(map.rejection_reasons["not_positive_after_gas_reserve"], 1);
+    }
+
+    #[test]
+    fn isolated_confirmation_becomes_map_cell() {
+        let reports: Vec<_> = (0..3)
+            .map(|observed_at_ms| ScanReport {
+                schema_version: 1,
+                observed_at_ms,
+                base_coin: "A".to_owned(),
+                quote_coin: "package::coin::TEST".to_owned(),
+                amount_in: 1_000,
+                gas_cost: 0,
+                min_profit_bps: 1,
+                candidates: vec![candidate(10, true)],
+                failures: Vec::new(),
+            })
+            .collect();
+        let opportunities = crate::research::confirm_opportunities(&reports, 2);
+        assert_eq!(opportunities.len(), 1);
+        let research = ResearchReport {
+            schema_version: 3,
+            observed_at_ms: 3,
+            amounts_tested: vec![1_000],
+            markets_tested: vec!["package::coin::TEST".to_owned()],
+            market_metadata: Vec::new(),
+            routes_evaluated: 3,
+            provider_failures: 0,
+            confirmation_runs: 3,
+            discovery_reports: 1,
+            venue_isolated_reports: 3,
+            venues_tested: vec!["cetus".to_owned(), "turbos".to_owned()],
+            opportunities,
+            reports,
+        };
+
+        let map = build_cartography(&[research], 4, 0);
+        assert_eq!(map.cells.len(), 1);
+        assert_eq!(map.cells[0].confirmed_signals, 1);
+        assert_eq!(map.cells[0].confirmation_hits, 3);
+        assert_eq!(map.cells[0].evidence_tier, "venue_isolated");
     }
 }

@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, ChevronDown, Clock3, Database, Gauge, Map, P
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatAge, formatSui, scannerApi, shortId, type Candidate, type CartographyReport, type ConfirmedOpportunity, type ResearchReport, type ScanInput, type ScanReport } from "@/lib/api";
+import { cartographyStatus, preserveCartography, rankCartographyCells, rankRejections } from "@/lib/cartography";
 
 const defaults: ScanInput = {
   amount_in: "1000000000",
@@ -22,13 +23,16 @@ function useScannerData() {
   const [cartography, setCartography] = useState<CartographyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const refresh = useCallback(async () => {
-    const [historyResult, cartographyResult] = await Promise.all([
+    const [historyResult, cartographyResult] = await Promise.allSettled([
       scannerApi.history(),
       scannerApi.cartography(),
     ]);
-    setHistory(historyResult.reports);
-    setLatest(historyResult.reports[0] ?? null);
-    setCartography(cartographyResult);
+    if (historyResult.status === "fulfilled") {
+      setHistory(historyResult.value.reports);
+      setLatest(historyResult.value.reports[0] ?? null);
+    }
+    setCartography((previous) => preserveCartography(previous, cartographyResult));
+    if (historyResult.status === "rejected" && cartographyResult.status === "rejected") throw historyResult.reason;
   }, []);
   useEffect(() => {
     refresh().catch(() => {}).finally(() => setLoading(false));
@@ -148,14 +152,14 @@ export function ScannerDashboard() {
       <aside className="control-panel" aria-label="Scan settings">
         <div className="panel-title"><div><Server size={18} /><h2>Research settings</h2></div><span>Read only</span></div>
         <Field label="One-shot amount (MIST)" value={form.amount_in} onChange={(amount_in) => setForm({ ...form, amount_in })} help="Auto research uses 0.1–25 SUI across six curated markets" />
-        <Field label="Gas reserve (MIST)" value={form.gas_cost} onChange={(gas_cost) => setForm({ ...form, gas_cost })} help="Applied to every round trip; not simulated gas" />
+        <Field label="Gas reserve (MIST)" value={form.gas_cost} onChange={(gas_cost) => setForm({ ...form, gas_cost })} help="Quote tier only; atomic simulation replaces it with measured gas" />
         <Field label="Minimum profit (bps)" value={form.min_profit_bps} onChange={(min_profit_bps) => setForm({ ...form, min_profit_bps })} />
         <Field label="Maximum quote skew (ms)" value={String(form.max_quote_skew_ms)} onChange={(value) => setForm({ ...form, max_quote_skew_ms: Number(value) })} help="Rejects legs observed too far apart" />
         <div className="field-pair"><Field label="Timeout (ms)" value={String(form.timeout_ms)} onChange={(value) => setForm({ ...form, timeout_ms: Number(value) })} /><Field label="Retries" value={String(form.retries)} onChange={(value) => setForm({ ...form, retries: Number(value) })} /></div>
         <Field label="7K sources" value={form.seven_k_sources.join(", ")} onChange={(value) => setForm({ ...form, seven_k_sources: value.split(",").map((part) => part.trim()).filter(Boolean) })} help="Comma-separated venue names" />
         <button className="button primary full" onClick={runResearch} disabled={researching || scanning}>{researching ? <><RefreshCw className="spin" size={17} /> Researching sizes…</> : <><Sparkles size={17} /> Auto research</>}</button>
         <button className="button secondary full" onClick={runScan} disabled={researching || scanning}>{scanning ? <><RefreshCw className="spin" size={17} /> Scanning quotes…</> : <><Play size={17} /> Run one scan</>}</button>
-        <p className="safety-note">No wallet, transaction build, simulation, signing, or submission. Confirmed means repeated venue-isolated quote evidence—not executable profit.</p>
+        <p className="safety-note">No wallet connection, private key, signing, or submission. Quote-confirmed routes remain non-executable until two matching unsigned atomic simulations survive.</p>
       </aside>
       <section className="results-panel">
         {research && <ResearchSummary report={research} />}
@@ -172,24 +176,26 @@ export function ScannerDashboard() {
 
 function CartographyView({ report, onResearch }: { report: CartographyReport | null; onResearch: () => void }) {
   if (!report || report.research_runs === 0) return <div className="empty-state"><Database size={30} /><strong>No persistent market evidence yet</strong><span>Run auto research. Results will survive scanner restarts and build this map.</span><button className="button primary" onClick={onResearch}>Map markets</button></div>;
-  const rejections = Object.entries(report.rejection_reasons).sort((left, right) => right[1] - left[1]);
+  const rejections = rankRejections(report.rejection_reasons);
+  const cells = rankCartographyCells(report.cells);
   return <div className="map-view">
     <div className="map-overview">
       <div><span>Research runs</span><strong>{report.research_runs}</strong></div>
       <div><span>Round trips</span><strong>{report.observed_round_trips}</strong></div>
       <div><span>Map cells</span><strong>{report.cells.length}</strong></div>
       <div><span>Confirmed signals</span><strong className={report.confirmed_signals ? "positive" : ""}>{report.confirmed_signals}</strong></div>
+      <div><span>Simulation confirmed</span><strong className={report.simulation_confirmed_signals ? "positive" : ""}>{report.simulation_confirmed_signals}</strong></div>
     </div>
     <div className="map-section-heading"><div><span className="eyebrow">Market × venue direction</span><h2>Evidence map</h2></div><span>Isolated evidence first · sample count shown</span></div>
-    {report.cells.length === 0 ? <div className="empty-state compact"><Gauge size={26} /><strong>No complete venue paths stored</strong><span>Research ran, but providers returned no comparable round trips.</span></div> : <div className="market-map">{report.cells.slice(0, 48).map((cell) => {
+    {cells.length === 0 ? <div className="empty-state compact"><Gauge size={26} /><strong>No complete venue paths stored</strong><span>Research ran, but providers returned no comparable round trips.</span></div> : <div className="market-map">{cells.slice(0, 48).map((cell) => {
       const bestPositive = BigInt(cell.best_net_profit) > 0n;
-      const tone = cell.confirmed_signals > 0 ? "hot" : cell.positive_quotes > 0 ? "warm" : "cold";
-      const status = cell.confirmed_signals > 0 ? "Quote confirmed" : cell.evidence_tier === "venue_isolated" ? "Isolated · unconfirmed" : "Discovery lead only";
+      const tone = cell.simulation_status === "simulation_confirmed" ? "hot" : cell.positive_quotes > 0 ? "warm" : "cold";
+      const status = cartographyStatus(cell);
       return <article className={`map-cell ${tone}`} key={`${cell.quote_coin}-${cell.evidence_tier}-${cell.forward_venues}-${cell.reverse_venues}`}>
         <div className="map-cell-head"><div><span>{cell.market_symbol}</span><strong><span>{cell.forward_venues}</span><ArrowRight size={13} /><span>{cell.reverse_venues}</span></strong></div><span className="tier-chip">{cell.evidence_tier === "venue_isolated" ? "Isolated" : "Discovery"}</span></div>
         <div className="map-profit"><span>Best quoted net</span><strong className={bestPositive ? "positive" : "negative"}>{bestPositive ? "+" : ""}{formatSui(cell.best_net_profit)} SUI</strong><small>at {formatSui(cell.best_amount_in)} SUI</small></div>
-        <div className="map-stats"><span><strong>{(cell.positive_rate_bps / 100).toFixed(2)}%</strong> positive</span><span><strong>{cell.positive_quotes}/{cell.observed_round_trips}</strong> observations</span><span><strong>{cell.confirmed_signals}</strong> confirmed</span></div>
-        <div className="map-cell-foot"><span>{formatAge(cell.last_observed_at_ms)}</span><strong>{status} · simulation {cell.simulation_status}</strong></div>
+        <div className="map-stats"><span><strong>{(cell.positive_rate_bps / 100).toFixed(2)}%</strong> quote positive</span><span><strong>{cell.positive_quotes}/{cell.observed_round_trips}</strong> observations</span><span><strong>{cell.confirmed_signals}</strong> quote confirmed</span><span><strong>{cell.simulation_attempts ? `${(cell.simulation_survival_rate_bps / 100).toFixed(0)}%` : "—"}</strong> simulation survival</span><span><strong>{cell.median_observed_half_life_ms === null ? "—" : `${cell.median_observed_half_life_ms} ms`}</strong> median half-life</span></div>
+        <div className="map-cell-foot"><span>{formatAge(cell.last_observed_at_ms)}</span><strong>{status}</strong></div>
       </article>;
     })}</div>}
     <section className="rejection-panel"><div><span className="eyebrow">Failed gates</span><h2>Why routes disappear</h2></div>{rejections.length === 0 ? <span>No rejection reasons stored.</span> : <div className="rejection-bars">{rejections.slice(0, 8).map(([reason, count]) => <div key={reason}><span>{reason.replaceAll("_", " ")}</span><strong>{count}</strong><i style={{ width: `${Math.max(4, (count / rejections[0][1]) * 100)}%` }} /></div>)}</div>}</section>
@@ -215,7 +221,9 @@ function OpportunityList({ research, onResearch }: { research: ResearchReport | 
 
 function ConfirmedOpportunityRow({ opportunity, rank }: { opportunity: ConfirmedOpportunity; rank: number }) {
   const candidate = opportunity.representative;
-  return <details className="candidate confirmed"><summary><div className="rank">{rank}</div><div className="route-name"><strong>SUI/{coinSymbol(opportunity.quote_coin)} · {candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span className="validation-chip">VENUE-ISOLATED QUOTE · {opportunity.confirmations}/{opportunity.samples}</span></div><div className="candidate-stat"><span>Input</span><strong>{formatSui(opportunity.amount_in)} SUI</strong></div><div className="candidate-stat"><span>Worst net</span><strong className="positive">+{formatSui(opportunity.worst_net_profit)} SUI</strong></div><div className="bps"><strong>{candidate.net_profit_bps}</strong><span>bps</span></div><ChevronDown className="chevron" size={18} /></summary><div className="confirmation-evidence"><span>Best observed +{formatSui(opportunity.best_net_profit)} SUI</span><span>Max quote skew {opportunity.max_quote_skew_ms} ms</span><span>Fingerprint {opportunity.route_fingerprint}</span><strong>PTB simulation {opportunity.simulation_status}</strong></div><Evidence candidate={candidate} /></details>;
+  const simulation = opportunity.simulation;
+  const confirmed = opportunity.simulation_status === "simulation_confirmed";
+  return <details className="candidate confirmed"><summary><div className="rank">{rank}</div><div className="route-name"><strong>SUI/{coinSymbol(opportunity.quote_coin)} · {candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span className="validation-chip">{confirmed ? "ATOMIC SIMULATION CONFIRMED" : "VENUE-ISOLATED QUOTE ONLY"} · {opportunity.confirmations}/{opportunity.samples}</span></div><div className="candidate-stat"><span>Input</span><strong>{formatSui(opportunity.amount_in)} SUI</strong></div><div className="candidate-stat"><span>{confirmed ? "Simulated delta" : "Worst quoted net"}</span><strong className={confirmed && simulation && BigInt(simulation.balance_delta) > 0n ? "positive" : ""}>{confirmed && simulation ? `${formatSui(simulation.balance_delta)} SUI` : `+${formatSui(opportunity.worst_net_profit)} SUI`}</strong></div><div className="bps"><strong>{simulation ? `${simulation.confirmation_count}/${simulation.attempts}` : candidate.net_profit_bps}</strong><span>{simulation ? "sim" : "bps"}</span></div><ChevronDown className="chevron" size={18} /></summary><div className="confirmation-evidence"><span>Best quoted +{formatSui(opportunity.best_net_profit)} SUI</span><span>Max quote skew {opportunity.max_quote_skew_ms} ms</span><span>Fingerprint {opportunity.route_fingerprint}</span><strong>Simulation {opportunity.simulation_status.replaceAll("_", " ")}</strong>{simulation && <><span>Measured gas {formatSui(simulation.measured_gas_cost)} SUI</span><span>Observed half-life {simulation.elapsed_half_life_ms ?? 0} ms</span>{simulation.failure_reason && <span>Failure: {simulation.failure_reason}</span>}</>}</div><Evidence candidate={candidate} /></details>;
 }
 
 function coinSymbol(coinType: string) {

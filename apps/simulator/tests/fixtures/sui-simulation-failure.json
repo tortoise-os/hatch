@@ -1,0 +1,18 @@
+{
+  "$kind": "FailedTransaction",
+  "FailedTransaction": {
+    "status": {
+      "success": false,
+      "error": { "message": "MoveAbort at command 3" }
+    },
+    "effects": {
+      "gasUsed": {
+        "computationCost": "9",
+        "storageCost": "1",
+        "storageRebate": "0"
+      }
+    },
+    "balanceChanges": []
+  },
+  "commandResults": [{}, {}]
+}

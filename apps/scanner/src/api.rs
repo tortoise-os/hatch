@@ -22,9 +22,11 @@ use crate::{
     http::now_ms,
     journal::{JournalError, ResearchJournal},
     research::{
-        CONFIRMATION_RUNS, DEFAULT_AMOUNTS, DEFAULT_MARKETS, MAX_AMOUNTS, MAX_MARKETS,
-        MIN_CONFIRMATIONS, confirm_opportunities,
+        CONFIRMATION_RUNS, DEFAULT_AMOUNTS, MAX_AMOUNTS, MAX_MARKETS, MIN_CONFIRMATIONS,
+        MarketDefinition, confirm_opportunities, default_market_registry,
+        positive_market_amount_pairs, validate_market_registry,
     },
+    simulation::{AtomicSimulator, confirm_atomic_simulation},
 };
 
 const HISTORY_CAP: usize = 100;
@@ -38,6 +40,7 @@ pub struct ApiState {
     scan_lock: Arc<Semaphore>,
     journal: Option<ResearchJournal>,
     journal_rejected_lines: usize,
+    simulator: Option<Arc<dyn AtomicSimulator>>,
 }
 
 impl ApiState {
@@ -50,6 +53,7 @@ impl ApiState {
             scan_lock: Arc::new(Semaphore::new(1)),
             journal: None,
             journal_rejected_lines: 0,
+            simulator: None,
         }
     }
 
@@ -76,7 +80,14 @@ impl ApiState {
             scan_lock: Arc::new(Semaphore::new(1)),
             journal: Some(journal),
             journal_rejected_lines: load.rejected_lines,
+            simulator: None,
         })
+    }
+
+    #[must_use]
+    pub fn with_simulator(mut self, simulator: Arc<dyn AtomicSimulator>) -> Self {
+        self.simulator = Some(simulator);
+        self
     }
 }
 
@@ -95,9 +106,12 @@ struct HealthResponse {
 #[derive(Debug, Serialize)]
 struct ConfigResponse {
     defaults: ScannerSettings,
+    market_registry: Vec<MarketDefinition>,
     providers: [&'static str; 2],
     history_retention: &'static str,
     journal_path: Option<String>,
+    simulation_mode: &'static str,
+    simulation_confirmations_required: usize,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -116,7 +130,7 @@ pub struct ScanRequest {
 #[derive(Debug, Default, Deserialize)]
 pub struct ResearchRequest {
     pub amounts: Option<Vec<String>>,
-    pub markets: Option<Vec<String>>,
+    pub markets: Option<Vec<MarketDefinition>>,
     #[serde(flatten)]
     pub scan: ScanRequest,
 }
@@ -193,12 +207,19 @@ async fn health(State(state): State<ApiState>) -> Json<HealthResponse> {
 async fn config(State(state): State<ApiState>) -> Json<ConfigResponse> {
     Json(ConfigResponse {
         defaults: state.settings,
+        market_registry: default_market_registry(),
         providers: ["cetus", "seven_k"],
         history_retention: "100_scans_and_250_research_runs",
         journal_path: state
             .journal
             .as_ref()
             .map(|journal| journal.path().display().to_string()),
+        simulation_mode: if state.simulator.is_some() {
+            "unsigned_atomic_ptb"
+        } else {
+            "disabled"
+        },
+        simulation_confirmations_required: 2,
     })
 }
 
@@ -312,23 +333,19 @@ async fn run_research(
     let markets = parse_research_markets(request.markets)?;
     let base_settings = apply_request(state.settings.clone(), request.scan)?;
     let mut discovery_reports = Vec::new();
-    let mut confirmation_pairs = BTreeSet::new();
 
-    for market in &markets {
+    for market in markets.iter().filter(|market| market.enabled) {
         for amount in &amounts {
             let mut settings = base_settings.clone();
-            settings.quote_coin.clone_from(market);
+            settings.quote_coin.clone_from(&market.coin_type);
             settings.amount_in = *amount;
             let report = run_with_settings(&settings).await?;
-            if report.opportunities().next().is_some() {
-                confirmation_pairs.insert((market.clone(), *amount));
-            }
             discovery_reports.push(report);
         }
     }
 
     let mut isolated_reports = Vec::new();
-    for (market, amount) in confirmation_pairs {
+    for ((market, amount), _) in positive_market_amount_pairs(&discovery_reports) {
         for _ in 0..CONFIRMATION_RUNS {
             let mut settings = base_settings.clone();
             settings.quote_coin.clone_from(&market);
@@ -337,9 +354,13 @@ async fn run_research(
                 .push(run_with_isolated_settings(&settings, &base_settings.seven_k_sources).await?);
         }
     }
+    let mut opportunities = confirm_opportunities(&isolated_reports, MIN_CONFIRMATIONS);
+    if let Some(simulator) = &state.simulator {
+        for opportunity in &mut opportunities {
+            confirm_atomic_simulation(opportunity, simulator.as_ref()).await;
+        }
+    }
     drop(permit);
-
-    let opportunities = confirm_opportunities(&isolated_reports, MIN_CONFIRMATIONS);
     let discovery_report_count = discovery_reports.len();
     let venue_isolated_report_count = isolated_reports.len();
     let venues_tested = if isolated_reports.is_empty() {
@@ -352,10 +373,15 @@ async fn run_research(
     let routes_evaluated = reports.iter().map(|report| report.candidates.len()).sum();
     let provider_failures = reports.iter().map(|report| report.failures.len()).sum();
     let response = ResearchReport {
-        schema_version: 2,
+        schema_version: 3,
         observed_at_ms: now_ms(),
         amounts_tested: amounts,
-        markets_tested: markets,
+        markets_tested: markets
+            .iter()
+            .filter(|market| market.enabled)
+            .map(|market| market.coin_type.clone())
+            .collect(),
+        market_metadata: markets,
         routes_evaluated,
         provider_failures,
         confirmation_runs: CONFIRMATION_RUNS,
@@ -496,8 +522,10 @@ fn parse_research_amounts(values: Option<Vec<String>>) -> Result<Vec<u128>, ApiE
     Ok(amounts)
 }
 
-fn parse_research_markets(values: Option<Vec<String>>) -> Result<Vec<String>, ApiError> {
-    let markets = values.unwrap_or_else(|| DEFAULT_MARKETS.map(ToOwned::to_owned).to_vec());
+fn parse_research_markets(
+    values: Option<Vec<MarketDefinition>>,
+) -> Result<Vec<MarketDefinition>, ApiError> {
+    let markets = values.unwrap_or_else(default_market_registry);
     if markets.is_empty() || markets.len() > MAX_MARKETS {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -505,20 +533,13 @@ fn parse_research_markets(values: Option<Vec<String>>) -> Result<Vec<String>, Ap
             format!("markets must contain between 1 and {MAX_MARKETS} coin types"),
         ));
     }
-    if markets.iter().any(|market| market.trim().is_empty()) {
-        return Err(ApiError(
+    validate_market_registry(&markets).map_err(|message| {
+        ApiError(
             StatusCode::BAD_REQUEST,
             "invalid_research_markets",
-            "markets must not contain empty coin types".to_owned(),
-        ));
-    }
-    if markets.iter().collect::<BTreeSet<_>>().len() != markets.len() {
-        return Err(ApiError(
-            StatusCode::BAD_REQUEST,
-            "invalid_research_markets",
-            "markets must not contain duplicates".to_owned(),
-        ));
-    }
+            message.to_owned(),
+        )
+    })?;
     Ok(markets)
 }
 
@@ -547,6 +568,71 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+    use crate::{Opportunity, Quote, RouteHop};
+
+    fn sample_research_report() -> ResearchReport {
+        let quote = |provider: &str, pool: &str, amount_in, amount_out| Quote {
+            provider: provider.to_owned(),
+            coin_in: "A".to_owned(),
+            coin_out: "B".to_owned(),
+            amount_in,
+            amount_out,
+            quote_id: None,
+            route: vec![RouteHop {
+                route_index: 0,
+                venue: provider.to_owned(),
+                pool_id: pool.to_owned(),
+                coin_in: "A".to_owned(),
+                coin_out: "B".to_owned(),
+            }],
+            estimated_gas_cost: None,
+            observed_at_ms: 1,
+            latency_ms: 1,
+        };
+        ResearchReport {
+            schema_version: 3,
+            observed_at_ms: 1,
+            amounts_tested: vec![100],
+            markets_tested: vec!["B".to_owned()],
+            market_metadata: vec![MarketDefinition {
+                symbol: "B".to_owned(),
+                coin_type: "B".to_owned(),
+                decimals: 6,
+                enabled: true,
+            }],
+            routes_evaluated: 1,
+            provider_failures: 0,
+            confirmation_runs: 3,
+            discovery_reports: 1,
+            venue_isolated_reports: 0,
+            venues_tested: Vec::new(),
+            opportunities: Vec::new(),
+            reports: vec![ScanReport {
+                schema_version: 1,
+                observed_at_ms: 1,
+                base_coin: "A".to_owned(),
+                quote_coin: "B".to_owned(),
+                amount_in: 100,
+                gas_cost: 1,
+                min_profit_bps: 1,
+                candidates: vec![Opportunity {
+                    forward: quote("cetus", "forward", 100, 110),
+                    reverse: quote("seven_k", "reverse", 110, 105),
+                    same_quote_provider: false,
+                    shared_pool_ids: Vec::new(),
+                    returned_base: 105,
+                    gross_profit: 5,
+                    gas_cost: 1,
+                    net_profit: 4,
+                    net_profit_bps: 400,
+                    quote_skew_ms: 0,
+                    rejection_reasons: Vec::new(),
+                    meets_threshold: true,
+                }],
+                failures: Vec::new(),
+            }],
+        }
+    }
 
     #[tokio::test]
     async fn health_declares_read_only_boundary() {
@@ -594,6 +680,43 @@ mod tests {
         assert_eq!(json["cells"], serde_json::json!([]));
     }
 
+    #[tokio::test]
+    async fn cartography_populated_endpoint_has_stable_shape() {
+        let state = ApiState::new(ScannerSettings::default());
+        state
+            .research_history
+            .lock()
+            .await
+            .push_front(sample_research_report());
+        let response = router(state)
+            .oneshot(
+                Request::get("/api/cartography")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["schema_version"], 2);
+        assert_eq!(json["cells"].as_array().unwrap().len(), 1);
+        assert_eq!(json["cells"][0]["market_symbol"], "B");
+        assert_eq!(json["cells"][0]["simulation_status"], "pending");
+        assert_eq!(json["cells"][0]["best_net_profit"], "4");
+    }
+
+    #[test]
+    fn staged_research_response_serializes_explicit_contract() {
+        let json = serde_json::to_value(sample_research_report()).unwrap();
+        assert_eq!(json["schema_version"], 3);
+        assert_eq!(json["discovery_reports"], 1);
+        assert_eq!(json["venue_isolated_reports"], 0);
+        assert_eq!(json["market_metadata"][0]["symbol"], "B");
+        assert_eq!(json["amounts_tested"][0], "100");
+        assert_eq!(json["reports"][0]["candidates"][0]["net_profit"], "4");
+    }
+
     #[test]
     fn request_validation_preserves_decimal_strings() {
         let settings = apply_request(
@@ -621,11 +744,32 @@ mod tests {
 
     #[test]
     fn research_markets_are_bounded_and_unique() {
-        assert_eq!(
-            parse_research_markets(Some(vec!["A".to_owned(), "B".to_owned()])).unwrap(),
-            ["A", "B"]
-        );
-        assert!(parse_research_markets(Some(vec!["A".to_owned(), "A".to_owned()])).is_err());
+        let market = |symbol: &str, coin_type: &str| MarketDefinition {
+            symbol: symbol.to_owned(),
+            coin_type: coin_type.to_owned(),
+            decimals: 9,
+            enabled: true,
+        };
+        let parsed =
+            parse_research_markets(Some(vec![market("A", "A"), market("B", "B")])).unwrap();
+        assert_eq!(parsed[0].coin_type, "A");
+        assert_eq!(parsed[1].coin_type, "B");
+        assert!(parse_research_markets(Some(vec![market("A", "A"), market("A2", "A")])).is_err());
         assert!(parse_research_markets(Some(Vec::new())).is_err());
+    }
+
+    #[tokio::test]
+    async fn config_returns_explicit_market_metadata() {
+        let response = router(ApiState::new(ScannerSettings::default()))
+            .oneshot(Request::get("/api/config").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["market_registry"].as_array().unwrap().len(), 6);
+        assert_eq!(json["market_registry"][0]["symbol"], "USDC");
+        assert_eq!(json["market_registry"][0]["decimals"], 6);
+        assert_eq!(json["market_registry"][0]["enabled"], true);
     }
 }

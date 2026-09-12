@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::{net::SocketAddr, process::ExitCode};
 
 use clap::Parser;
@@ -5,6 +6,7 @@ use hatch_sui_scanner::{
     api::{ApiState, router},
     app::{NATIVE_USDC, SUI, ScannerSettings, split_sources},
     journal::default_journal_path,
+    simulation::{AtomicSimulationConfig, CommandAtomicSimulator},
 };
 
 #[derive(Debug, Parser)]
@@ -116,7 +118,10 @@ async fn serve(
         .validate()
         .map_err(|message| format!("invalid settings: {message}"))?;
     let listener = tokio::net::TcpListener::bind(listen).await?;
-    let state = ApiState::persistent(settings, default_journal_path())?;
+    let mut state = ApiState::persistent(settings, default_journal_path())?;
+    if let Some(config) = AtomicSimulationConfig::from_env()? {
+        state = state.with_simulator(Arc::new(CommandAtomicSimulator::new(config)));
+    }
     println!("Hatch scanner API listening on http://{listen} (read only)");
     axum::serve(listener, router(state)).await?;
     Ok(())
