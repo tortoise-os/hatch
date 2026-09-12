@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     path::PathBuf,
     sync::Arc,
 };
@@ -17,14 +17,15 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     ResearchReport, ScanReport,
-    app::ScannerSettings,
+    app::{NATIVE_USDC, SUI, ScannerSettings},
     cartography::{CartographyReport, build_cartography},
     http::now_ms,
     journal::{JournalError, ResearchJournal},
     research::{
-        CONFIRMATION_RUNS, DEFAULT_AMOUNTS, MAX_AMOUNTS, MAX_MARKETS, MIN_CONFIRMATIONS,
-        MarketDefinition, confirm_opportunities, default_market_registry,
-        positive_market_amount_pairs, validate_market_registry,
+        AdaptiveSizingEvidence, CONFIRMATION_RUNS, MAX_AMOUNTS, MAX_MARKETS, MIN_CONFIRMATIONS,
+        MarketDefinition, MarketSizingEvidence, ONE_USDC_ATOMIC, USD_NOTIONAL_TARGETS, USDC, XBTC,
+        atomic_unit, confirm_opportunities, convert_sui_gas_to_base, default_market_registry,
+        positive_market_amount_pairs, usd_normalized_amounts, validate_market_registry,
     },
     simulation::{AtomicSimulator, confirm_atomic_simulation},
 };
@@ -116,6 +117,7 @@ struct ConfigResponse {
 
 #[derive(Debug, Default, Deserialize)]
 pub struct ScanRequest {
+    pub base_coin: Option<String>,
     pub quote_coin: Option<String>,
     pub amount_in: Option<String>,
     pub gas_cost: Option<String>,
@@ -329,27 +331,50 @@ async fn run_research(
             "Another scan or research run is already running.".to_owned(),
         )
     })?;
-    let amounts = parse_research_amounts(request.amounts)?;
-    let markets = parse_research_markets(request.markets)?;
-    let base_settings = apply_request(state.settings.clone(), request.scan)?;
+    let ResearchRequest {
+        amounts,
+        markets,
+        scan,
+    } = request;
+    let markets = parse_research_markets(markets)?;
+    let base_settings = apply_request(state.settings.clone(), scan)?;
+    let explicit_amounts = amounts
+        .map(|values| parse_research_amounts(Some(values)))
+        .transpose()?;
+    let (market_sizing, adaptive_sizing) =
+        build_market_sizing(&base_settings, &markets, explicit_amounts).await?;
     let mut discovery_reports = Vec::new();
 
-    for market in markets.iter().filter(|market| market.enabled) {
-        for amount in &amounts {
+    for sizing in &market_sizing {
+        for amount in &sizing.amounts {
             let mut settings = base_settings.clone();
-            settings.quote_coin.clone_from(&market.coin_type);
+            settings.base_coin.clone_from(&sizing.base_coin);
+            settings.quote_coin.clone_from(&sizing.quote_coin);
             settings.amount_in = *amount;
+            settings.gas_cost = sizing.gas_cost_base;
             let report = run_with_settings(&settings).await?;
             discovery_reports.push(report);
         }
     }
 
     let mut isolated_reports = Vec::new();
-    for ((market, amount), _) in positive_market_amount_pairs(&discovery_reports) {
+    for ((base_coin, quote_coin, amount), _) in positive_market_amount_pairs(&discovery_reports) {
+        let sizing = market_sizing
+            .iter()
+            .find(|sizing| sizing.base_coin == base_coin && sizing.quote_coin == quote_coin)
+            .ok_or_else(|| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "research_plan_missing",
+                    "Positive pair had no matching sizing plan".to_owned(),
+                )
+            })?;
         for _ in 0..CONFIRMATION_RUNS {
             let mut settings = base_settings.clone();
-            settings.quote_coin.clone_from(&market);
+            settings.base_coin.clone_from(&base_coin);
+            settings.quote_coin.clone_from(&quote_coin);
             settings.amount_in = amount;
+            settings.gas_cost = sizing.gas_cost_base;
             isolated_reports
                 .push(run_with_isolated_settings(&settings, &base_settings.seven_k_sources).await?);
         }
@@ -357,7 +382,11 @@ async fn run_research(
     let mut opportunities = confirm_opportunities(&isolated_reports, MIN_CONFIRMATIONS);
     if let Some(simulator) = &state.simulator {
         for opportunity in &mut opportunities {
-            confirm_atomic_simulation(opportunity, simulator.as_ref()).await;
+            if opportunity.base_coin == SUI {
+                confirm_atomic_simulation(opportunity, simulator.as_ref()).await;
+            } else {
+                opportunity.simulation_status = "unsupported_base".to_owned();
+            }
         }
     }
     let discovery_report_count = discovery_reports.len();
@@ -371,16 +400,23 @@ async fn run_research(
     reports.extend(isolated_reports);
     let routes_evaluated = reports.iter().map(|report| report.candidates.len()).sum();
     let provider_failures = reports.iter().map(|report| report.failures.len()).sum();
+    let amounts_tested = market_sizing
+        .iter()
+        .flat_map(|sizing| sizing.amounts.iter().copied())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let response = ResearchReport {
-        schema_version: 3,
+        schema_version: 5,
         observed_at_ms: now_ms(),
-        amounts_tested: amounts,
-        markets_tested: markets
+        amounts_tested,
+        markets_tested: market_sizing
             .iter()
-            .filter(|market| market.enabled)
-            .map(|market| market.coin_type.clone())
+            .map(|sizing| sizing.market_symbol.clone())
             .collect(),
         market_metadata: markets,
+        adaptive_sizing,
+        market_sizing,
         routes_evaluated,
         provider_failures,
         confirmation_runs: CONFIRMATION_RUNS,
@@ -411,6 +447,203 @@ async fn run_research(
     research_history.push_front(response.clone());
     research_history.truncate(RESEARCH_HISTORY_CAP);
     Ok(Json(response))
+}
+
+#[derive(Debug, Clone)]
+struct BaseCalibration {
+    reference_amount_in: u128,
+    usdc_per_base_atomic: u128,
+    providers: Vec<String>,
+}
+
+async fn build_market_sizing(
+    settings: &ScannerSettings,
+    markets: &[MarketDefinition],
+    explicit_amounts: Option<Vec<u128>>,
+) -> Result<(Vec<MarketSizingEvidence>, Option<AdaptiveSizingEvidence>), ApiError> {
+    let active: Vec<_> = markets.iter().filter(|market| market.scannable()).collect();
+    let unique_bases: BTreeSet<_> = active
+        .iter()
+        .map(|market| market.base_coin.as_str())
+        .collect();
+    if explicit_amounts.is_some() && unique_bases.len() > 1 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "ambiguous_research_amounts",
+            "explicit amounts require enabled markets to share one base coin".to_owned(),
+        ));
+    }
+
+    let sui = calibrate_base_usdc(settings, SUI, "SUI", 9).await?;
+    let mut calibrations = BTreeMap::from([(SUI.to_owned(), sui.clone())]);
+    for market in &active {
+        if !calibrations.contains_key(&market.base_coin) {
+            let calibration = calibrate_base_usdc(
+                settings,
+                &market.base_coin,
+                &market.base_symbol,
+                market.base_decimals,
+            )
+            .await?;
+            calibrations.insert(market.base_coin.clone(), calibration);
+        }
+    }
+
+    let mut sizing = Vec::with_capacity(active.len());
+    for market in active {
+        let calibration = calibrations.get(&market.base_coin).ok_or_else(|| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "base_calibration_missing",
+                format!("No calibration found for {}", market.base_symbol),
+            )
+        })?;
+        let base_unit = atomic_unit(market.base_decimals).map_err(sizing_error)?;
+        let amounts = match &explicit_amounts {
+            Some(values) => values.clone(),
+            None => usd_normalized_amounts(calibration.usdc_per_base_atomic, base_unit)
+                .map_err(sizing_error)?,
+        };
+        let gas_cost_base = convert_sui_gas_to_base(
+            settings.gas_cost,
+            sui.usdc_per_base_atomic,
+            calibration.usdc_per_base_atomic,
+            base_unit,
+        )
+        .map_err(sizing_error)?;
+        sizing.push(MarketSizingEvidence {
+            market_symbol: market.symbol.clone(),
+            base_coin: market.base_coin.clone(),
+            base_symbol: market.base_symbol.clone(),
+            base_decimals: market.base_decimals,
+            quote_coin: market.coin_type.clone(),
+            quote_symbol: market.resolved_quote_symbol().to_owned(),
+            quote_decimals: market.decimals,
+            reference_amount_in: calibration.reference_amount_in,
+            usdc_per_base_atomic: calibration.usdc_per_base_atomic,
+            providers: calibration.providers.clone(),
+            usd_targets: USD_NOTIONAL_TARGETS.to_vec(),
+            amounts,
+            gas_cost_base,
+        });
+    }
+
+    let adaptive = Some(AdaptiveSizingEvidence {
+        quote_coin: NATIVE_USDC.to_owned(),
+        reference_amount_in: sui.reference_amount_in,
+        usdc_per_sui_atomic: sui.usdc_per_base_atomic,
+        providers: sui.providers,
+        usd_targets: USD_NOTIONAL_TARGETS.to_vec(),
+    });
+    Ok((sizing, adaptive))
+}
+
+async fn calibrate_base_usdc(
+    settings: &ScannerSettings,
+    base_coin: &str,
+    base_symbol: &str,
+    base_decimals: u8,
+) -> Result<BaseCalibration, ApiError> {
+    let base_unit = atomic_unit(base_decimals).map_err(sizing_error)?;
+    if base_coin == USDC {
+        return Ok(BaseCalibration {
+            reference_amount_in: base_unit,
+            usdc_per_base_atomic: ONE_USDC_ATOMIC,
+            providers: vec!["native_usdc_parity".to_owned()],
+        });
+    }
+
+    let reference_amount_in = if base_coin == XBTC {
+        base_unit / 100
+    } else {
+        base_unit
+    };
+    let mut calibration = settings.clone();
+    calibration.base_coin = base_coin.to_owned();
+    calibration.quote_coin = NATIVE_USDC.to_owned();
+    calibration.amount_in = reference_amount_in;
+    let scanner = calibration.scanner().map_err(|error| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_adaptive_sizing_settings",
+            error.to_string(),
+        )
+    })?;
+    let (quotes, failures) = scanner.forward_quotes().await.map_err(|error| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            "adaptive_sizing_failed",
+            error.to_string(),
+        )
+    })?;
+    let observations: BTreeMap<_, _> = quotes
+        .into_iter()
+        .filter(|quote| quote.amount_in == reference_amount_in && quote.amount_out > 0)
+        .map(|quote| {
+            quote
+                .amount_out
+                .checked_mul(base_unit)
+                .map(|normalized| (quote.provider, normalized / reference_amount_in))
+        })
+        .collect::<Option<_>>()
+        .ok_or_else(|| sizing_error("base calibration overflowed"))?;
+    if observations.is_empty() {
+        let detail = failures
+            .first()
+            .map(|failure| failure.message.as_str())
+            .unwrap_or("providers returned no valid base/USDC quote");
+        return Err(ApiError(
+            StatusCode::BAD_GATEWAY,
+            "adaptive_sizing_failed",
+            format!("Could not calibrate {base_symbol}/USDC: {detail}"),
+        ));
+    }
+    let usdc_per_base_atomic = median(observations.values().copied())?;
+    validate_calibration(base_coin, usdc_per_base_atomic)?;
+    Ok(BaseCalibration {
+        reference_amount_in,
+        usdc_per_base_atomic,
+        providers: observations.into_keys().collect(),
+    })
+}
+
+fn median(values: impl IntoIterator<Item = u128>) -> Result<u128, ApiError> {
+    let mut prices: Vec<_> = values.into_iter().collect();
+    prices.sort_unstable();
+    let middle = prices.len() / 2;
+    if prices.len().is_multiple_of(2) {
+        prices[middle - 1]
+            .checked_add(prices[middle])
+            .map(|sum| sum / 2)
+            .ok_or_else(|| sizing_error("base/USDC calibration median overflowed"))
+    } else {
+        Ok(prices[middle])
+    }
+}
+
+fn validate_calibration(base_coin: &str, price: u128) -> Result<(), ApiError> {
+    let plausible = if base_coin == SUI {
+        (10_000..=100_000_000).contains(&price)
+    } else if base_coin == XBTC {
+        (1_000_000_000..=1_000_000_000_000).contains(&price)
+    } else {
+        price > 0
+    };
+    if plausible {
+        Ok(())
+    } else {
+        Err(sizing_error(
+            "base/USDC calibration price is outside plausible bounds",
+        ))
+    }
+}
+
+fn sizing_error(message: &'static str) -> ApiError {
+    ApiError(
+        StatusCode::BAD_GATEWAY,
+        "adaptive_sizing_failed",
+        message.to_owned(),
+    )
 }
 
 async fn run_with_settings(settings: &ScannerSettings) -> Result<ScanReport, ApiError> {
@@ -451,6 +684,9 @@ fn apply_request(
     mut settings: ScannerSettings,
     request: ScanRequest,
 ) -> Result<ScannerSettings, ApiError> {
+    if let Some(value) = request.base_coin {
+        settings.base_coin = value.trim().to_owned();
+    }
     if let Some(value) = request.quote_coin {
         settings.quote_coin = value.trim().to_owned();
     }
@@ -478,11 +714,18 @@ fn apply_request(
     if let Some(value) = request.seven_k_sources {
         settings.seven_k_sources = clean_sources(value);
     }
-    if settings.quote_coin.is_empty() {
+    if settings.base_coin.is_empty() || settings.quote_coin.is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             "invalid_settings",
-            "quote_coin must not be empty".to_owned(),
+            "base_coin and quote_coin must not be empty".to_owned(),
+        ));
+    }
+    if settings.base_coin == settings.quote_coin {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_settings",
+            "base_coin and quote_coin must differ".to_owned(),
         ));
     }
     settings
@@ -492,7 +735,13 @@ fn apply_request(
 }
 
 fn parse_research_amounts(values: Option<Vec<String>>) -> Result<Vec<u128>, ApiError> {
-    let values = values.unwrap_or_else(|| DEFAULT_AMOUNTS.map(|value| value.to_string()).to_vec());
+    let values = values.ok_or_else(|| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_research_amounts",
+            "explicit amounts must be supplied".to_owned(),
+        )
+    })?;
     if values.is_empty() || values.len() > MAX_AMOUNTS {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -539,6 +788,13 @@ fn parse_research_markets(
             message.to_owned(),
         )
     })?;
+    if !markets.iter().any(MarketDefinition::scannable) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid_research_markets",
+            "at least one market must be enabled for scanning".to_owned(),
+        ));
+    }
     Ok(markets)
 }
 
@@ -589,16 +845,23 @@ mod tests {
             latency_ms: 1,
         };
         ResearchReport {
-            schema_version: 3,
+            schema_version: 5,
             observed_at_ms: 1,
             amounts_tested: vec![100],
             markets_tested: vec!["B".to_owned()],
             market_metadata: vec![MarketDefinition {
-                symbol: "B".to_owned(),
+                symbol: "A/B".to_owned(),
+                base_coin: "A".to_owned(),
+                base_symbol: "A".to_owned(),
+                base_decimals: 9,
                 coin_type: "B".to_owned(),
+                quote_symbol: "B".to_owned(),
                 decimals: 6,
                 enabled: true,
+                watchlist_only: false,
             }],
+            adaptive_sizing: None,
+            market_sizing: Vec::new(),
             routes_evaluated: 1,
             provider_failures: 0,
             confirmation_runs: 3,
@@ -698,9 +961,9 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["schema_version"], 2);
+        assert_eq!(json["schema_version"], 3);
         assert_eq!(json["cells"].as_array().unwrap().len(), 1);
-        assert_eq!(json["cells"][0]["market_symbol"], "B");
+        assert_eq!(json["cells"][0]["market_symbol"], "A/B");
         assert_eq!(json["cells"][0]["simulation_status"], "pending");
         assert_eq!(json["cells"][0]["best_net_profit"], "4");
     }
@@ -708,10 +971,10 @@ mod tests {
     #[test]
     fn staged_research_response_serializes_explicit_contract() {
         let json = serde_json::to_value(sample_research_report()).unwrap();
-        assert_eq!(json["schema_version"], 3);
+        assert_eq!(json["schema_version"], 5);
         assert_eq!(json["discovery_reports"], 1);
         assert_eq!(json["venue_isolated_reports"], 0);
-        assert_eq!(json["market_metadata"][0]["symbol"], "B");
+        assert_eq!(json["market_metadata"][0]["symbol"], "A/B");
         assert_eq!(json["amounts_tested"][0], "100");
         assert_eq!(json["reports"][0]["candidates"][0]["net_profit"], "4");
     }
@@ -745,9 +1008,14 @@ mod tests {
     fn research_markets_are_bounded_and_unique() {
         let market = |symbol: &str, coin_type: &str| MarketDefinition {
             symbol: symbol.to_owned(),
+            base_coin: "SUI".to_owned(),
+            base_symbol: "SUI".to_owned(),
+            base_decimals: 9,
             coin_type: coin_type.to_owned(),
+            quote_symbol: symbol.to_owned(),
             decimals: 9,
             enabled: true,
+            watchlist_only: false,
         };
         let parsed =
             parse_research_markets(Some(vec![market("A", "A"), market("B", "B")])).unwrap();
@@ -755,6 +1023,10 @@ mod tests {
         assert_eq!(parsed[1].coin_type, "B");
         assert!(parse_research_markets(Some(vec![market("A", "A"), market("A2", "A")])).is_err());
         assert!(parse_research_markets(Some(Vec::new())).is_err());
+        let mut watchlist = market("WATCH", "W");
+        watchlist.enabled = false;
+        watchlist.watchlist_only = true;
+        assert!(parse_research_markets(Some(vec![watchlist])).is_err());
     }
 
     #[tokio::test]
@@ -767,8 +1039,13 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["market_registry"].as_array().unwrap().len(), 6);
-        assert_eq!(json["market_registry"][0]["symbol"], "USDC");
+        assert_eq!(json["market_registry"][0]["symbol"], "USDC/USDT");
+        assert_eq!(json["market_registry"][0]["base_symbol"], "USDC");
+        assert_eq!(json["market_registry"][0]["quote_symbol"], "USDT");
         assert_eq!(json["market_registry"][0]["decimals"], 6);
         assert_eq!(json["market_registry"][0]["enabled"], true);
+        assert_eq!(json["market_registry"][5]["symbol"], "USDC/ETH");
+        assert_eq!(json["market_registry"][5]["watchlist_only"], true);
+        assert_eq!(json["market_registry"][5]["enabled"], false);
     }
 }

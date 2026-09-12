@@ -4,23 +4,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Opportunity, ScanReport};
 
-pub const DEFAULT_AMOUNTS: [u128; 8] = [
-    100_000_000,
-    250_000_000,
-    500_000_000,
-    1_000_000_000,
-    2_000_000_000,
-    5_000_000_000,
-    10_000_000_000,
-    25_000_000_000,
-];
-const USDC: &str = "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
-const USDT: &str = "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN";
-const CETUS: &str =
-    "0x06864a6f921804860930db6ddbe2e16acdf8504495ea7481637a1c8b9a8fe54b::cetus::CETUS";
-const DEEP: &str = "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP";
-const WAL: &str = "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL";
-const BUCK: &str = "0xce7ff77a83ea0cb6fd39bd8748e2ec89a3f41e8efdc3f4eb123e0ca37b184db2::buck::BUCK";
+pub const USD_NOTIONAL_TARGETS: [u64; 6] = [100, 500, 1_000, 5_000, 10_000, 25_000];
+pub const ONE_SUI_MIST: u128 = 1_000_000_000;
+pub const ONE_USDC_ATOMIC: u128 = 1_000_000;
+pub const MIN_PLAUSIBLE_SUI_USDC_ATOMIC: u128 = 10_000;
+pub const MAX_PLAUSIBLE_SUI_USDC_ATOMIC: u128 = 100_000_000;
+pub const USDC: &str =
+    "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
+pub const USDT: &str =
+    "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN";
+pub const USDSUI: &str =
+    "0x44f838219cf67b058f3b37907b655f226153c18e33dfcd0da559a844fea9b1c1::usdsui::USDSUI";
+pub const XBTC: &str =
+    "0x876a4b7bce8aeaef60464c11f4026903e9afacab79b9b142686158aa86560b50::xbtc::XBTC";
+pub const WBTC: &str =
+    "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC";
+pub const ETH: &str =
+    "0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH";
 pub const MAX_AMOUNTS: usize = 12;
 pub const MAX_MARKETS: usize = 12;
 pub const CONFIRMATION_RUNS: usize = 3;
@@ -29,47 +29,213 @@ pub const MIN_CONFIRMATIONS: usize = 2;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MarketDefinition {
     pub symbol: String,
+    #[serde(default = "legacy_base_coin")]
+    pub base_coin: String,
+    #[serde(default = "legacy_base_symbol")]
+    pub base_symbol: String,
+    #[serde(default = "legacy_base_decimals")]
+    pub base_decimals: u8,
     pub coin_type: String,
+    #[serde(default)]
+    pub quote_symbol: String,
     pub decimals: u8,
     pub enabled: bool,
+    #[serde(default)]
+    pub watchlist_only: bool,
+}
+
+fn legacy_base_coin() -> String {
+    crate::app::SUI.to_owned()
+}
+
+fn legacy_base_symbol() -> String {
+    "SUI".to_owned()
+}
+
+const fn legacy_base_decimals() -> u8 {
+    9
+}
+
+impl MarketDefinition {
+    #[must_use]
+    pub fn resolved_quote_symbol(&self) -> &str {
+        if self.quote_symbol.is_empty() {
+            &self.symbol
+        } else {
+            &self.quote_symbol
+        }
+    }
+
+    #[must_use]
+    pub const fn scannable(&self) -> bool {
+        self.enabled && !self.watchlist_only
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdaptiveSizingEvidence {
+    pub quote_coin: String,
+    #[serde(with = "crate::model::u128_string")]
+    pub reference_amount_in: u128,
+    #[serde(with = "crate::model::u128_string")]
+    pub usdc_per_sui_atomic: u128,
+    pub providers: Vec<String>,
+    pub usd_targets: Vec<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketSizingEvidence {
+    pub market_symbol: String,
+    pub base_coin: String,
+    pub base_symbol: String,
+    pub base_decimals: u8,
+    pub quote_coin: String,
+    pub quote_symbol: String,
+    pub quote_decimals: u8,
+    #[serde(with = "crate::model::u128_string")]
+    pub reference_amount_in: u128,
+    #[serde(with = "crate::model::u128_string")]
+    pub usdc_per_base_atomic: u128,
+    pub providers: Vec<String>,
+    pub usd_targets: Vec<u64>,
+    #[serde(with = "crate::model::u128_vec_string")]
+    pub amounts: Vec<u128>,
+    #[serde(with = "crate::model::u128_string")]
+    pub gas_cost_base: u128,
+}
+
+pub fn atomic_unit(decimals: u8) -> Result<u128, &'static str> {
+    10_u128
+        .checked_pow(u32::from(decimals))
+        .ok_or("coin decimal scale overflowed")
+}
+
+pub fn usd_normalized_amounts(
+    usdc_per_base_atomic: u128,
+    base_unit: u128,
+) -> Result<Vec<u128>, &'static str> {
+    if usdc_per_base_atomic == 0 || base_unit == 0 {
+        return Err("USD calibration and base unit must be greater than zero");
+    }
+
+    USD_NOTIONAL_TARGETS
+        .into_iter()
+        .map(|usd| {
+            u128::from(usd)
+                .checked_mul(ONE_USDC_ATOMIC)
+                .and_then(|value| value.checked_mul(base_unit))
+                .and_then(|value| value.checked_add(usdc_per_base_atomic / 2))
+                .map(|value| value / usdc_per_base_atomic)
+                .ok_or("USD-normalized base amount overflowed")
+        })
+        .collect()
+}
+
+pub fn convert_sui_gas_to_base(
+    gas_mist: u128,
+    sui_usdc_atomic: u128,
+    usdc_per_base_atomic: u128,
+    base_unit: u128,
+) -> Result<u128, &'static str> {
+    let denominator = ONE_SUI_MIST
+        .checked_mul(usdc_per_base_atomic)
+        .ok_or("gas conversion denominator overflowed")?;
+    let numerator = gas_mist
+        .checked_mul(sui_usdc_atomic)
+        .and_then(|value| value.checked_mul(base_unit))
+        .ok_or("gas conversion numerator overflowed")?;
+    numerator
+        .checked_add(denominator.saturating_sub(1))
+        .map(|value| value / denominator)
+        .ok_or("gas conversion rounding overflowed")
+}
+
+pub fn usd_normalized_sui_amounts(usdc_per_sui_atomic: u128) -> Result<Vec<u128>, &'static str> {
+    if !(MIN_PLAUSIBLE_SUI_USDC_ATOMIC..=MAX_PLAUSIBLE_SUI_USDC_ATOMIC)
+        .contains(&usdc_per_sui_atomic)
+    {
+        return Err("SUI/USDC calibration price is outside plausible bounds");
+    }
+
+    usd_normalized_amounts(usdc_per_sui_atomic, ONE_SUI_MIST)
 }
 
 #[must_use]
 pub fn default_market_registry() -> Vec<MarketDefinition> {
-    [
-        ("USDC", USDC, 6),
-        ("USDT", USDT, 6),
-        ("CETUS", CETUS, 9),
-        ("DEEP", DEEP, 6),
-        ("WAL", WAL, 9),
-        ("BUCK", BUCK, 9),
+    vec![
+        market("USDC/USDT", USDC, "USDC", 6, USDT, "USDT", 6, false),
+        market(
+            "SUI/USDC",
+            crate::app::SUI,
+            "SUI",
+            9,
+            USDC,
+            "USDC",
+            6,
+            false,
+        ),
+        market("USDC/USDSUI", USDC, "USDC", 6, USDSUI, "USDSUI", 6, false),
+        market("USDC/xBTC", USDC, "USDC", 6, XBTC, "xBTC", 8, false),
+        market("xBTC/WBTC", XBTC, "xBTC", 8, WBTC, "WBTC", 8, false),
+        market("USDC/ETH", USDC, "USDC", 6, ETH, "ETH", 8, true),
     ]
-    .into_iter()
-    .map(|(symbol, coin_type, decimals)| MarketDefinition {
+}
+
+#[allow(clippy::too_many_arguments)]
+fn market(
+    symbol: &str,
+    base_coin: &str,
+    base_symbol: &str,
+    base_decimals: u8,
+    quote_coin: &str,
+    quote_symbol: &str,
+    quote_decimals: u8,
+    watchlist_only: bool,
+) -> MarketDefinition {
+    MarketDefinition {
         symbol: symbol.to_owned(),
-        coin_type: coin_type.to_owned(),
-        decimals,
-        enabled: true,
-    })
-    .collect()
+        base_coin: base_coin.to_owned(),
+        base_symbol: base_symbol.to_owned(),
+        base_decimals,
+        coin_type: quote_coin.to_owned(),
+        quote_symbol: quote_symbol.to_owned(),
+        decimals: quote_decimals,
+        enabled: !watchlist_only,
+        watchlist_only,
+    }
 }
 
 pub fn validate_market_registry(markets: &[MarketDefinition]) -> Result<(), &'static str> {
     if markets.is_empty() {
         return Err("market registry must not be empty");
     }
+    if markets.iter().any(|market| {
+        market.symbol.trim().is_empty()
+            || market.base_coin.trim().is_empty()
+            || market.base_symbol.trim().is_empty()
+            || market.coin_type.trim().is_empty()
+            || market.resolved_quote_symbol().trim().is_empty()
+    }) {
+        return Err("market identity fields must not be empty");
+    }
     if markets
         .iter()
-        .any(|market| market.coin_type.trim().is_empty())
+        .any(|market| market.base_coin == market.coin_type)
     {
-        return Err("market coin types must not be empty");
+        return Err("market base and quote coin must differ");
+    }
+    if markets
+        .iter()
+        .any(|market| market.enabled && market.watchlist_only)
+    {
+        return Err("watchlist-only markets must not be enabled");
     }
     let unique = markets
         .iter()
-        .map(|market| market.coin_type.trim())
+        .map(|market| (market.base_coin.trim(), market.coin_type.trim()))
         .collect::<std::collections::BTreeSet<_>>();
     if unique.len() != markets.len() {
-        return Err("market coin types must not contain duplicates");
+        return Err("market pairs must not contain duplicates");
     }
     Ok(())
 }
@@ -83,6 +249,8 @@ pub struct ConfirmedOpportunity {
     pub route_fingerprint: String,
     #[serde(with = "crate::model::u128_string")]
     pub amount_in: u128,
+    #[serde(default = "legacy_base_coin")]
+    pub base_coin: String,
     pub quote_coin: String,
     pub confirmations: usize,
     pub samples: usize,
@@ -103,6 +271,10 @@ pub struct ResearchReport {
     pub markets_tested: Vec<String>,
     #[serde(default)]
     pub market_metadata: Vec<MarketDefinition>,
+    #[serde(default)]
+    pub adaptive_sizing: Option<AdaptiveSizingEvidence>,
+    #[serde(default)]
+    pub market_sizing: Vec<MarketSizingEvidence>,
     pub routes_evaluated: usize,
     pub provider_failures: usize,
     pub confirmation_runs: usize,
@@ -121,12 +293,16 @@ pub fn confirm_opportunities(
     reports: &[ScanReport],
     minimum_confirmations: usize,
 ) -> Vec<ConfirmedOpportunity> {
-    let mut samples_by_market_amount: HashMap<(String, u128), usize> = HashMap::new();
-    let mut groups: BTreeMap<(String, u128, String), Vec<&Opportunity>> = BTreeMap::new();
+    let mut samples_by_market_amount: HashMap<(String, String, u128), usize> = HashMap::new();
+    let mut groups: BTreeMap<(String, String, u128, String), Vec<&Opportunity>> = BTreeMap::new();
 
     for report in reports {
         *samples_by_market_amount
-            .entry((report.quote_coin.clone(), report.amount_in))
+            .entry((
+                report.base_coin.clone(),
+                report.quote_coin.clone(),
+                report.amount_in,
+            ))
             .or_default() += 1;
         let mut candidates_in_sample = BTreeMap::new();
         for candidate in report.opportunities() {
@@ -142,7 +318,12 @@ pub fn confirm_opportunities(
         }
         for (fingerprint, candidate) in candidates_in_sample {
             groups
-                .entry((report.quote_coin.clone(), report.amount_in, fingerprint))
+                .entry((
+                    report.base_coin.clone(),
+                    report.quote_coin.clone(),
+                    report.amount_in,
+                    fingerprint,
+                ))
                 .or_default()
                 .push(candidate);
         }
@@ -150,36 +331,39 @@ pub fn confirm_opportunities(
 
     let mut confirmed: Vec<_> = groups
         .into_iter()
-        .filter_map(|((quote_coin, amount_in, route_fingerprint), candidates)| {
-            if candidates.len() < minimum_confirmations {
-                return None;
-            }
-            let representative = (*candidates.last()?).clone();
-            let worst_net_profit = candidates.iter().map(|item| item.net_profit).min()?;
-            let best_net_profit = candidates.iter().map(|item| item.net_profit).max()?;
-            let max_quote_skew_ms = candidates
-                .iter()
-                .map(|item| item.quote_skew_ms)
-                .max()
-                .unwrap_or_default();
-            Some(ConfirmedOpportunity {
-                validation_tier: "venue_isolated_quote_confirmed".to_owned(),
-                simulation_status: "pending".to_owned(),
-                simulation: None,
-                route_fingerprint,
-                amount_in,
-                quote_coin: quote_coin.clone(),
-                confirmations: candidates.len(),
-                samples: samples_by_market_amount
-                    .get(&(quote_coin, amount_in))
-                    .copied()
-                    .unwrap_or_default(),
-                worst_net_profit,
-                best_net_profit,
-                max_quote_skew_ms,
-                representative,
-            })
-        })
+        .filter_map(
+            |((base_coin, quote_coin, amount_in, route_fingerprint), candidates)| {
+                if candidates.len() < minimum_confirmations {
+                    return None;
+                }
+                let representative = (*candidates.last()?).clone();
+                let worst_net_profit = candidates.iter().map(|item| item.net_profit).min()?;
+                let best_net_profit = candidates.iter().map(|item| item.net_profit).max()?;
+                let max_quote_skew_ms = candidates
+                    .iter()
+                    .map(|item| item.quote_skew_ms)
+                    .max()
+                    .unwrap_or_default();
+                Some(ConfirmedOpportunity {
+                    validation_tier: "venue_isolated_quote_confirmed".to_owned(),
+                    simulation_status: "pending".to_owned(),
+                    simulation: None,
+                    route_fingerprint,
+                    amount_in,
+                    base_coin: base_coin.clone(),
+                    quote_coin: quote_coin.clone(),
+                    confirmations: candidates.len(),
+                    samples: samples_by_market_amount
+                        .get(&(base_coin, quote_coin, amount_in))
+                        .copied()
+                        .unwrap_or_default(),
+                    worst_net_profit,
+                    best_net_profit,
+                    max_quote_skew_ms,
+                    representative,
+                })
+            },
+        )
         .collect();
     confirmed.sort_by(|left, right| {
         right
@@ -191,12 +375,18 @@ pub fn confirm_opportunities(
 }
 
 #[must_use]
-pub fn positive_market_amount_pairs(reports: &[ScanReport]) -> BTreeMap<(String, u128), usize> {
+pub fn positive_market_amount_pairs(
+    reports: &[ScanReport],
+) -> BTreeMap<(String, String, u128), usize> {
     let mut pairs = BTreeMap::new();
     for report in reports {
         if report.opportunities().next().is_some() {
             *pairs
-                .entry((report.quote_coin.clone(), report.amount_in))
+                .entry((
+                    report.base_coin.clone(),
+                    report.quote_coin.clone(),
+                    report.amount_in,
+                ))
                 .or_default() += 1;
         }
     }
@@ -337,17 +527,19 @@ mod tests {
         let mut markets = default_market_registry();
         assert!(validate_market_registry(&markets).is_ok());
 
-        let duplicate = markets[0].coin_type.clone();
-        markets[1].coin_type = duplicate;
+        let duplicate_base = markets[0].base_coin.clone();
+        let duplicate_quote = markets[0].coin_type.clone();
+        markets[1].base_coin = duplicate_base;
+        markets[1].coin_type = duplicate_quote;
         assert_eq!(
             validate_market_registry(&markets),
-            Err("market coin types must not contain duplicates")
+            Err("market pairs must not contain duplicates")
         );
 
         markets[1].coin_type.clear();
         assert_eq!(
             validate_market_registry(&markets),
-            Err("market coin types must not be empty")
+            Err("market identity fields must not be empty")
         );
     }
 
@@ -359,20 +551,97 @@ mod tests {
                 .iter()
                 .map(|market| market.symbol.as_str())
                 .collect::<Vec<_>>(),
-            ["USDC", "USDT", "CETUS", "DEEP", "WAL", "BUCK"]
+            [
+                "USDC/USDT",
+                "SUI/USDC",
+                "USDC/USDSUI",
+                "USDC/xBTC",
+                "xBTC/WBTC",
+                "USDC/ETH",
+            ]
         );
         assert_eq!(
             markets
                 .iter()
                 .map(|market| market.decimals)
                 .collect::<Vec<_>>(),
-            [6, 6, 9, 6, 9, 9]
+            [6, 6, 6, 8, 8, 8]
         );
-        assert!(markets.iter().all(|market| market.enabled));
         assert_eq!(
-            markets.iter().filter(|market| market.enabled).count() * DEFAULT_AMOUNTS.len(),
-            48
+            markets.iter().filter(|market| market.scannable()).count(),
+            5
         );
+        assert_eq!(
+            markets
+                .iter()
+                .filter(|market| market.watchlist_only)
+                .count(),
+            1
+        );
+        assert_eq!(
+            markets.last().map(|market| market.symbol.as_str()),
+            Some("USDC/ETH")
+        );
+        assert_eq!(
+            markets.iter().filter(|market| market.scannable()).count() * USD_NOTIONAL_TARGETS.len(),
+            30
+        );
+    }
+
+    #[test]
+    fn usd_normalized_ladder_tracks_live_sui_price() {
+        let one_dollar_sui = usd_normalized_sui_amounts(1_000_000).unwrap();
+        assert_eq!(
+            one_dollar_sui,
+            [
+                100_000_000_000,
+                500_000_000_000,
+                1_000_000_000_000,
+                5_000_000_000_000,
+                10_000_000_000_000,
+                25_000_000_000_000,
+            ]
+        );
+
+        let current_price_shape = usd_normalized_sui_amounts(740_741).unwrap();
+        assert!((134_000_000_000..=136_000_000_000).contains(&current_price_shape[0]));
+        assert!((33_749_000_000_000..=33_751_000_000_000).contains(&current_price_shape[5]));
+        assert!(current_price_shape.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn usd_normalized_ladder_rejects_implausible_calibration() {
+        assert!(usd_normalized_sui_amounts(0).is_err());
+        assert!(usd_normalized_sui_amounts(100_000_001).is_err());
+    }
+
+    #[test]
+    fn gas_conversion_keeps_units_comparable() {
+        assert_eq!(
+            convert_sui_gas_to_base(2_000_000, 728_451, 728_451, ONE_SUI_MIST).unwrap(),
+            2_000_000
+        );
+        assert_eq!(
+            convert_sui_gas_to_base(2_000_000, 728_451, ONE_USDC_ATOMIC, 1_000_000).unwrap(),
+            1_457
+        );
+        assert_eq!(
+            convert_sui_gas_to_base(2_000_000, 728_451, 77_000_000_000, 100_000_000).unwrap(),
+            2
+        );
+    }
+
+    #[test]
+    fn legacy_market_defaults_to_sui_base() {
+        let market: MarketDefinition = serde_json::from_str(
+            r#"{"symbol":"USDC","coin_type":"coin","decimals":6,"enabled":true}"#,
+        )
+        .unwrap();
+        assert_eq!(market.base_coin, crate::app::SUI);
+        assert_eq!(market.base_symbol, "SUI");
+        assert_eq!(market.base_decimals, 9);
+        assert_eq!(market.resolved_quote_symbol(), "USDC");
+        assert!(!market.watchlist_only);
     }
 
     #[test]
@@ -384,6 +653,9 @@ mod tests {
         rejected.candidates[0].meets_threshold = false;
         let pairs = positive_market_amount_pairs(&[positive, rejected]);
         assert_eq!(pairs.len(), 1);
-        assert_eq!(pairs.get(&("B".to_owned(), 1_000)), Some(&1));
+        assert_eq!(
+            pairs.get(&("A".to_owned(), "B".to_owned(), 1_000)),
+            Some(&1)
+        );
     }
 }

@@ -22,6 +22,7 @@ export function cartographyStatus(cell: CartographyCell): string {
     case "simulation_failed": return "Atomic simulation failed";
     case "simulation_non_positive": return "Atomic simulation non-positive";
     case "fingerprint_mismatch": return "Simulation fingerprint mismatch";
+    case "unsupported_base": return "Quote confirmed · simulator unsupported for base";
     case "pending": {
       if (cell.confirmed_signals > 0) return "Quote confirmed only · simulation pending";
       if (cell.evidence_tier === "venue_isolated") return "Isolated · unconfirmed · simulation pending";

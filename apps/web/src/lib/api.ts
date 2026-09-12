@@ -68,6 +68,7 @@ export type Health = {
 };
 
 export type ScanInput = {
+  base_coin?: string;
   quote_coin?: string;
   amount_in: string;
   gas_cost: string;
@@ -81,10 +82,11 @@ export type ScanInput = {
 
 export type ConfirmedOpportunity = {
   validation_tier: "venue_isolated_quote_confirmed";
-  simulation_status: "pending" | "simulation_confirmed" | "simulation_failed" | "simulation_non_positive" | "fingerprint_mismatch";
+  simulation_status: "pending" | "simulation_confirmed" | "simulation_failed" | "simulation_non_positive" | "fingerprint_mismatch" | "unsupported_base";
   simulation: AtomicSimulationEvidence | null;
   route_fingerprint: string;
   amount_in: string;
+  base_coin: string;
   quote_coin: string;
   confirmations: number;
   samples: number;
@@ -127,6 +129,8 @@ export type ResearchReport = {
   amounts_tested: string[];
   markets_tested: string[];
   market_metadata: MarketDefinition[];
+  adaptive_sizing: AdaptiveSizingEvidence | null;
+  market_sizing: MarketSizingEvidence[];
   routes_evaluated: number;
   provider_failures: number;
   confirmation_runs: number;
@@ -137,15 +141,49 @@ export type ResearchReport = {
   reports: ScanReport[];
 };
 
+export type AdaptiveSizingEvidence = {
+  quote_coin: string;
+  reference_amount_in: string;
+  usdc_per_sui_atomic: string;
+  providers: string[];
+  usd_targets: number[];
+};
+
+export type MarketSizingEvidence = {
+  market_symbol: string;
+  base_coin: string;
+  base_symbol: string;
+  base_decimals: number;
+  quote_coin: string;
+  quote_symbol: string;
+  quote_decimals: number;
+  reference_amount_in: string;
+  usdc_per_base_atomic: string;
+  providers: string[];
+  usd_targets: number[];
+  amounts: string[];
+  gas_cost_base: string;
+};
+
 export type MarketDefinition = {
   symbol: string;
+  base_coin: string;
+  base_symbol: string;
+  base_decimals: number;
   coin_type: string;
+  quote_symbol: string;
   decimals: number;
   enabled: boolean;
+  watchlist_only: boolean;
 };
 
 export type CartographyCell = {
+  base_coin: string;
+  base_symbol: string;
+  base_decimals: number;
   quote_coin: string;
+  quote_symbol: string;
+  quote_decimals: number;
   market_symbol: string;
   evidence_tier: "aggregator_discovery" | "venue_isolated";
   forward_venues: string;
@@ -160,7 +198,7 @@ export type CartographyCell = {
   worst_net_profit: string;
   best_amount_in: string;
   last_observed_at_ms: number;
-  simulation_status: "pending" | "simulation_confirmed" | "simulation_failed" | "simulation_non_positive" | "fingerprint_mismatch";
+  simulation_status: "pending" | "simulation_confirmed" | "simulation_failed" | "simulation_non_positive" | "fingerprint_mismatch" | "unsupported_base";
   simulation_attempts: number;
   positive_simulations: number;
   simulation_survival_rate_bps: number;
@@ -182,7 +220,17 @@ export type CartographyReport = {
   rejection_reasons: Record<string, number>;
 };
 
-export type ResearchInput = Omit<ScanInput, "amount_in" | "quote_coin"> & { amounts?: string[]; markets?: MarketDefinition[] };
+export type ResearchInput = Omit<ScanInput, "amount_in" | "base_coin" | "quote_coin"> & { amounts?: string[]; markets?: MarketDefinition[] };
+
+export type ScannerConfig = {
+  defaults: ScanInput;
+  market_registry: MarketDefinition[];
+  providers: string[];
+  history_retention: string;
+  journal_path: string | null;
+  simulation_mode: string;
+  simulation_confirmations_required: number;
+};
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, { cache: "no-store", ...init });
@@ -195,6 +243,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const scannerApi = {
   health: () => request<Health>("/api/health"),
+  config: () => request<ScannerConfig>("/api/config"),
   latest: () => request<ScanReport>("/api/scans/latest"),
   history: () => request<{ reports: ScanReport[]; retention: string }>("/api/scans?limit=20"),
   cartography: () => request<CartographyReport>("/api/cartography"),
@@ -213,11 +262,16 @@ export const scannerApi = {
 };
 
 export function formatSui(value: string, digits = 4): string {
+  return formatAtomic(value, 9, digits);
+}
+
+export function formatAtomic(value: string, decimals: number, digits = 4): string {
   const atomic = BigInt(value);
   const negative = atomic < 0n;
   const absolute = negative ? -atomic : atomic;
-  const whole = absolute / 1_000_000_000n;
-  const fraction = (absolute % 1_000_000_000n).toString().padStart(9, "0").slice(0, digits);
+  const scale = 10n ** BigInt(decimals);
+  const whole = absolute / scale;
+  const fraction = (absolute % scale).toString().padStart(decimals, "0").slice(0, digits);
   return `${negative ? "−" : ""}${whole.toLocaleString()}${digits ? `.${fraction}` : ""}`;
 }
 

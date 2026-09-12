@@ -41,38 +41,7 @@ impl Scanner {
     }
 
     pub async fn scan(&self) -> Result<ScanReport, ScanError> {
-        if self.config.amount_in == 0 {
-            return Err(ScanError::ZeroAmount);
-        }
-        if self.providers.is_empty() {
-            return Err(ScanError::NoProviders);
-        }
-
-        let forward_request = QuoteRequest {
-            coin_in: self.config.base_coin.clone(),
-            coin_out: self.config.quote_coin.clone(),
-            amount_in: self.config.amount_in,
-        };
-        let forward_results = join_all(self.providers.iter().map(|provider| {
-            let request = forward_request.clone();
-            let provider_name = provider.name().to_owned();
-            async move {
-                (
-                    provider_name,
-                    quote_with_retry(provider.as_ref(), &request, self.config.retries).await,
-                )
-            }
-        }))
-        .await;
-
-        let mut forward_quotes = Vec::new();
-        let mut failures = Vec::new();
-        for (provider, result) in forward_results {
-            match result {
-                Ok(quote) => forward_quotes.push(quote),
-                Err(error) => failures.push(to_failure(&provider, "forward", error)),
-            }
-        }
+        let (forward_quotes, mut failures) = self.forward_quotes().await?;
 
         let reverse_results = join_all(forward_quotes.iter().enumerate().flat_map(
             |(forward_index, forward)| {
@@ -133,6 +102,42 @@ impl Scanner {
             candidates,
             failures,
         })
+    }
+
+    pub async fn forward_quotes(&self) -> Result<(Vec<Quote>, Vec<ProviderFailure>), ScanError> {
+        if self.config.amount_in == 0 {
+            return Err(ScanError::ZeroAmount);
+        }
+        if self.providers.is_empty() {
+            return Err(ScanError::NoProviders);
+        }
+
+        let forward_request = QuoteRequest {
+            coin_in: self.config.base_coin.clone(),
+            coin_out: self.config.quote_coin.clone(),
+            amount_in: self.config.amount_in,
+        };
+        let forward_results = join_all(self.providers.iter().map(|provider| {
+            let request = forward_request.clone();
+            let provider_name = provider.name().to_owned();
+            async move {
+                (
+                    provider_name,
+                    quote_with_retry(provider.as_ref(), &request, self.config.retries).await,
+                )
+            }
+        }))
+        .await;
+
+        let mut forward_quotes = Vec::new();
+        let mut failures = Vec::new();
+        for (provider, result) in forward_results {
+            match result {
+                Ok(quote) => forward_quotes.push(quote),
+                Err(error) => failures.push(to_failure(&provider, "forward", error)),
+            }
+        }
+        Ok((forward_quotes, failures))
     }
 }
 
@@ -470,6 +475,24 @@ mod tests {
         assert_eq!(report.candidates.len(), 1);
         assert_eq!(report.failures.len(), 2);
         assert!(report.has_complete_round_trip());
+    }
+
+    #[tokio::test]
+    async fn forward_quotes_do_not_require_reverse_route() {
+        let failed = ProviderError::new("bad", FailureKind::Upstream, "offline", false);
+        let bad = Arc::new(MockProvider::new("bad", [(("SUI", 1_000), Err(failed))]));
+        let good = Arc::new(MockProvider::new("good", [(("SUI", 1_000), Ok(2_000))]));
+
+        let (quotes, failures) = Scanner::new(vec![bad, good], config())
+            .forward_quotes()
+            .await
+            .expect("forward quote collection succeeds");
+
+        assert_eq!(quotes.len(), 1);
+        assert_eq!(quotes[0].provider, "good");
+        assert_eq!(quotes[0].amount_out, 2_000);
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].stage, "forward");
     }
 
     #[test]

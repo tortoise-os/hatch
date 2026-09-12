@@ -1,6 +1,6 @@
 # Hatch Sui Scanner
 
-Read-only quote-surface scanner for Sui. It requests exact-in quotes from Cetus and Bluefin/7K, calculates quoted SUI round trips with integer arithmetic, subtracts a configurable gas reserve, and rejects stale or shared-liquidity comparisons.
+Read-only quote-surface scanner for Sui. It requests exact-in quotes from Cetus and Bluefin/7K, calculates direct-base round trips with integer arithmetic, subtracts a base-normalized gas reserve, and rejects stale or shared-liquidity comparisons.
 
 Scanner cannot sign or submit transactions. Optional simulation tier builds one unsigned atomic PTB with Cetus CLMM borrow/repay and Cetus aggregator swap builders, then sends it only to Sui `simulateTransaction`. No private key, keypair, signature, wallet connection, or submission path exists.
 
@@ -18,7 +18,7 @@ In another terminal, start TortoiseOS dashboard:
 bun run dev:web
 ```
 
-Open `http://127.0.0.1:3410`. Overview shows latest signal and service health. Scanner workspace at `/scanner` can run one-shot scans or bounded auto research across USDC, USDT, CETUS, DEEP, WAL, and BUCK. Auto research sweeps eight SUI sizes, advances positive market/size pairs to venue-isolated 7K quotes, and rechecks route fingerprints three times. API listens on `http://127.0.0.1:3411`.
+Open `http://127.0.0.1:3410`. Overview shows latest signal and service health. Scanner workspace at `/scanner` can run one-shot scans or bounded auto research across `USDC/USDT`, `SUI/USDC`, `USDC/USDSUI`, `USDC/xBTC`, and `xBTC/WBTC`. `USDC/ETH` remains visible but watchlist-only. Auto research calibrates each base against native USDC, converts $100, $500, $1,000, $5,000, $10,000, and $25,000 notionals into base-coin sizes, converts configured SUI gas reserve into each base, advances positive market/size pairs to venue-isolated 7K quotes, and rechecks route fingerprints three times. API listens on `http://127.0.0.1:3411`.
 
 Research history appends to `apps/scanner/data/research.jsonl` and reloads after scanner restart. Override location with `HATCH_SCANNER_JOURNAL`. Web app has no wallet, signing, or execution controls.
 
@@ -80,8 +80,9 @@ cargo run --manifest-path apps/scanner/Cargo.toml --release -- >> scans.jsonl
 - `POST /api/research`: bounded market/size matrix with repeated fingerprint confirmation.
 - `opportunities`: venue-isolated routes positive in at least two of three samples for one market and size.
 - `validation_tier: venue_isolated_quote_confirmed`: repeated isolated quote evidence.
-- `simulation_status: simulation_confirmed`: two matching unsigned atomic simulations returned positive SUI balance delta after flash-loan fee and measured gas.
-- Other simulation statuses remain rejected evidence: `pending`, `simulation_failed`, `simulation_non_positive`, or `fingerprint_mismatch`.
+- `simulation_status: simulation_confirmed`: two matching unsigned atomic SUI simulations returned positive balance delta after flash-loan fee and measured gas.
+- `simulation_status: unsupported_base`: quote confirmation exists, but current simulator supports SUI base only.
+- Other simulation statuses remain rejected evidence: `pending`, `simulation_failed`, `simulation_non_positive`, `fingerprint_mismatch`, or `unsupported_base`.
 - `GET /api/cartography`: persisted evidence grouped by market, evidence tier, and directional venue path.
 - `failures`: provider, scan stage, failure class, retryability, and message.
 - `route`: underlying venue and pool metadata supplied by each aggregator.

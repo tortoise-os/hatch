@@ -3,7 +3,7 @@
 import { AlertTriangle, ArrowRight, ChevronDown, Clock3, Database, Gauge, Map, Play, RefreshCw, Server, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatAge, formatSui, scannerApi, shortId, type Candidate, type CartographyReport, type ConfirmedOpportunity, type ResearchReport, type ScanInput, type ScanReport } from "@/lib/api";
+import { formatAge, formatAtomic, formatSui, scannerApi, shortId, type Candidate, type CartographyReport, type ConfirmedOpportunity, type MarketDefinition, type ResearchReport, type ScanInput, type ScannerConfig, type ScanReport } from "@/lib/api";
 import { CARTOGRAPHY_PAGE_SIZE, cartographyStatus, preserveCartography, rankCartographyCells, rankRejections, visibleCartographyCells } from "@/lib/cartography";
 
 const defaults: ScanInput = {
@@ -21,27 +21,45 @@ function useScannerData() {
   const [latest, setLatest] = useState<ScanReport | null>(null);
   const [history, setHistory] = useState<ScanReport[]>([]);
   const [cartography, setCartography] = useState<CartographyReport | null>(null);
+  const [config, setConfig] = useState<ScannerConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const refresh = useCallback(async () => {
-    const [historyResult, cartographyResult] = await Promise.allSettled([
+    const [historyResult, cartographyResult, configResult] = await Promise.allSettled([
       scannerApi.history(),
       scannerApi.cartography(),
+      scannerApi.config(),
     ]);
     if (historyResult.status === "fulfilled") {
       setHistory(historyResult.value.reports);
       setLatest(historyResult.value.reports[0] ?? null);
     }
     setCartography((previous) => preserveCartography(previous, cartographyResult));
-    if (historyResult.status === "rejected" && cartographyResult.status === "rejected") throw historyResult.reason;
+    if (configResult.status === "fulfilled") setConfig(configResult.value);
+    if (historyResult.status === "rejected" && cartographyResult.status === "rejected" && configResult.status === "rejected") throw historyResult.reason;
   }, []);
   useEffect(() => {
     refresh().catch(() => {}).finally(() => setLoading(false));
   }, [refresh]);
-  return { latest, setLatest, history, cartography, refresh, loading };
+  return { latest, setLatest, history, cartography, config, refresh, loading };
 }
 
 function best(report: ScanReport | null) {
   return report?.candidates[0] ?? null;
+}
+
+function coinMeta(coinType: string): { symbol: string; decimals: number } {
+  if (coinType.endsWith("::sui::SUI")) return { symbol: "SUI", decimals: 9 };
+  if (coinType.endsWith("::usdc::USDC")) return { symbol: "USDC", decimals: 6 };
+  if (coinType.endsWith("::usdsui::USDSUI")) return { symbol: "USDSUI", decimals: 6 };
+  if (coinType.endsWith("::xbtc::XBTC")) return { symbol: "xBTC", decimals: 8 };
+  if (coinType.endsWith("::wbtc::WBTC")) return { symbol: "WBTC", decimals: 8 };
+  if (coinType.endsWith("::eth::ETH")) return { symbol: "ETH", decimals: 8 };
+  if (coinType.includes("c0600061")) return { symbol: "USDT", decimals: 6 };
+  return { symbol: shortId(coinType), decimals: 9 };
+}
+
+function pairKey(market: Pick<MarketDefinition, "base_coin" | "coin_type">) {
+  return `${market.base_coin}|${market.coin_type}`;
 }
 
 function Metric({ label, value, note, tone = "neutral" }: { label: string; value: string; note: string; tone?: string }) {
@@ -53,6 +71,7 @@ export function OverviewDashboard() {
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState("");
   const top = best(latest);
+  const latestBase = coinMeta(latest?.base_coin ?? "0x2::sui::SUI");
   const qualifying = latest?.candidates.filter((candidate) => candidate.meets_threshold).length ?? 0;
 
   async function runScan() {
@@ -76,7 +95,7 @@ export function OverviewDashboard() {
       </div>
       <div className="signal-orb">
         <span>Best net return</span>
-        <strong className={top && BigInt(top.net_profit) > 0n ? "positive" : "negative"}>{top ? `${formatSui(top.net_profit)} SUI` : "—"}</strong>
+        <strong className={top && BigInt(top.net_profit) > 0n ? "positive" : "negative"}>{top ? `${formatAtomic(top.net_profit, latestBase.decimals)} ${latestBase.symbol}` : "—"}</strong>
         <small>{top ? `${top.net_profit_bps} bps · ${formatAge(latest!.observed_at_ms)}` : "Run first scan to establish signal"}</small>
       </div>
     </section>
@@ -100,19 +119,27 @@ export function OverviewDashboard() {
 
 function ScanHistoryRow({ report }: { report: ScanReport }) {
   const top = best(report);
-  return <div className="scan-row"><span className="scan-time">{new Date(report.observed_at_ms).toLocaleTimeString()}</span><span>{report.candidates.length} evaluated</span><span>{report.failures.length} failures</span><strong className={top && BigInt(top.net_profit) > 0n ? "positive" : "negative"}>{top ? `${formatSui(top.net_profit)} SUI` : "No complete route"}</strong><span>{formatAge(report.observed_at_ms)}</span></div>;
+  const base = coinMeta(report.base_coin);
+  return <div className="scan-row"><span className="scan-time">{new Date(report.observed_at_ms).toLocaleTimeString()}</span><span>{base.symbol}/{coinMeta(report.quote_coin).symbol} · {report.candidates.length} evaluated</span><span>{report.failures.length} failures</span><strong className={top && BigInt(top.net_profit) > 0n ? "positive" : "negative"}>{top ? `${formatAtomic(top.net_profit, base.decimals)} ${base.symbol}` : "No complete route"}</strong><span>{formatAge(report.observed_at_ms)}</span></div>;
 }
 
 type Tab = "map" | "opportunities" | "evaluated" | "routes" | "failures" | "history";
 
 export function ScannerDashboard() {
-  const { latest, setLatest, history, cartography, refresh, loading } = useScannerData();
+  const { latest, setLatest, history, cartography, config, refresh, loading } = useScannerData();
   const [form, setForm] = useState(defaults);
   const [tab, setTab] = useState<Tab>("map");
   const [scanning, setScanning] = useState(false);
   const [researching, setResearching] = useState(false);
   const [research, setResearch] = useState<ResearchReport | null>(null);
   const [error, setError] = useState("");
+  const activeMarkets = useMemo(() => config?.market_registry.filter((market) => market.enabled && !market.watchlist_only) ?? [], [config]);
+  const watchlist = useMemo(() => config?.market_registry.filter((market) => market.watchlist_only) ?? [], [config]);
+  useEffect(() => {
+    if (form.base_coin || !activeMarkets.length) return;
+    const market = activeMarkets.find((candidate) => candidate.symbol === "SUI/USDC") ?? activeMarkets[0];
+    setForm((current) => ({ ...current, base_coin: market.base_coin, quote_coin: market.coin_type, amount_in: (10n ** BigInt(market.base_decimals)).toString() }));
+  }, [activeMarkets, form.base_coin]);
   const evaluated = useMemo(
     () => research ? research.reports.flatMap((report) => report.candidates) : latest?.candidates ?? [],
     [latest, research],
@@ -145,13 +172,26 @@ export function ScannerDashboard() {
     finally { setResearching(false); }
   }
 
+  function selectMarket(value: string) {
+    const market = activeMarkets.find((candidate) => pairKey(candidate) === value);
+    if (!market) return;
+    setForm({
+      ...form,
+      base_coin: market.base_coin,
+      quote_coin: market.coin_type,
+      amount_in: (10n ** BigInt(market.base_decimals)).toString(),
+    });
+  }
+
   return <div className="stack-lg">
-    <div className="page-heading"><div><span className="eyebrow"><Map size={14} /> Opportunity cartographer</span><h1>Where edge survives.</h1><p>Broad quotes discover leads across six Sui markets. Positive pairs advance to venue-isolated checks. Persistent map shows where evidence repeats—and where it fails.</p></div>{latest && <div className="latest-stamp"><span className="status-dot" /> Latest scan {formatAge(latest.observed_at_ms)}</div>}</div>
+    <div className="page-heading"><div><span className="eyebrow"><Map size={14} /> Opportunity cartographer</span><h1>Where edge survives.</h1><p>Direct-base quotes scan five high-value Sui pairs. Positive pairs advance to venue-isolated checks. ETH stays visible, watchlist-only.</p></div>{latest && <div className="latest-stamp"><span className="status-dot" /> Latest scan {formatAge(latest.observed_at_ms)}</div>}</div>
+    {config && <div className="market-registry" aria-label="Market registry">{config.market_registry.map((market) => <span className={market.watchlist_only ? "watchlist" : "active"} key={pairKey(market)}>{market.symbol}<small>{market.watchlist_only ? "Watchlist" : "Active"}</small></span>)}</div>}
     {error && <div className="error-banner"><AlertTriangle size={18} /><div><strong>Scan did not complete</strong><span>{error} Previous evidence remains visible.</span></div></div>}
     <div className="scanner-layout">
       <aside className="control-panel" aria-label="Scan settings">
         <div className="panel-title"><div><Server size={18} /><h2>Research settings</h2></div><span>Read only</span></div>
-        <Field label="One-shot amount (MIST)" value={form.amount_in} onChange={(amount_in) => setForm({ ...form, amount_in })} help="Auto research uses 0.1–25 SUI across six curated markets" />
+        <label className="field" htmlFor="one-shot-pair"><span>One-shot pair</span><select id="one-shot-pair" value={form.base_coin && form.quote_coin ? `${form.base_coin}|${form.quote_coin}` : ""} onChange={(event) => selectMarket(event.target.value)}><option value="" disabled>Loading markets…</option>{activeMarkets.map((market) => <option key={pairKey(market)} value={pairKey(market)}>{market.symbol}</option>)}</select>{watchlist.length > 0 && <small>{watchlist.map((market) => market.symbol).join(", ")} watchlist-only</small>}</label>
+        <Field label={`One-shot amount (${coinMeta(form.base_coin ?? "0x2::sui::SUI").symbol} atomic)`} value={form.amount_in} onChange={(amount_in) => setForm({ ...form, amount_in })} help="Auto research calibrates each base to USDC, then tests $100–$25k notionals" />
         <Field label="Gas reserve (MIST)" value={form.gas_cost} onChange={(gas_cost) => setForm({ ...form, gas_cost })} help="Quote tier only; atomic simulation replaces it with measured gas" />
         <Field label="Minimum profit (bps)" value={form.min_profit_bps} onChange={(min_profit_bps) => setForm({ ...form, min_profit_bps })} />
         <Field label="Maximum quote skew (ms)" value={String(form.max_quote_skew_ms)} onChange={(value) => setForm({ ...form, max_quote_skew_ms: Number(value) })} help="Rejects legs observed too far apart" />
@@ -193,9 +233,9 @@ function CartographyView({ report, onResearch }: { report: CartographyReport | n
       const bestPositive = BigInt(cell.best_net_profit) > 0n;
       const tone = cell.simulation_status === "simulation_confirmed" ? "hot" : cell.positive_quotes > 0 ? "warm" : "cold";
       const status = cartographyStatus(cell);
-      return <article className={`map-cell ${tone}`} key={`${cell.quote_coin}-${cell.evidence_tier}-${cell.forward_venues}-${cell.reverse_venues}`}>
+      return <article className={`map-cell ${tone}`} key={`${cell.base_coin}-${cell.quote_coin}-${cell.evidence_tier}-${cell.forward_venues}-${cell.reverse_venues}`}>
         <div className="map-cell-head"><div><span>{cell.market_symbol}</span><strong><span>{cell.forward_venues}</span><ArrowRight size={13} /><span>{cell.reverse_venues}</span></strong></div><span className="tier-chip">{cell.evidence_tier === "venue_isolated" ? "Isolated" : "Discovery"}</span></div>
-        <div className="map-profit"><span>Best quoted net</span><strong className={bestPositive ? "positive" : "negative"}>{bestPositive ? "+" : ""}{formatSui(cell.best_net_profit)} SUI</strong><small>at {formatSui(cell.best_amount_in)} SUI</small></div>
+        <div className="map-profit"><span>Best quoted net</span><strong className={bestPositive ? "positive" : "negative"}>{bestPositive ? "+" : ""}{formatAtomic(cell.best_net_profit, cell.base_decimals)} {cell.base_symbol}</strong><small>at {formatAtomic(cell.best_amount_in, cell.base_decimals)} {cell.base_symbol}</small></div>
         <div className="map-stats"><span><strong>{(cell.positive_rate_bps / 100).toFixed(2)}%</strong> quote positive</span><span><strong>{cell.positive_quotes}/{cell.observed_round_trips}</strong> observations</span><span><strong>{cell.confirmed_signals}</strong> quote confirmed</span><span><strong>{cell.simulation_attempts ? `${(cell.simulation_survival_rate_bps / 100).toFixed(0)}%` : "—"}</strong> simulation survival</span><span><strong>{cell.median_observed_half_life_ms === null ? "—" : `${cell.median_observed_half_life_ms} ms`}</strong> median half-life</span></div>
         <div className="map-cell-foot"><span>{formatAge(cell.last_observed_at_ms)}</span><strong>{status}</strong></div>
       </article>;
@@ -205,19 +245,22 @@ function CartographyView({ report, onResearch }: { report: CartographyReport | n
 }
 
 function ResearchSummary({ report }: { report: ResearchReport }) {
-  return <div className="research-summary" aria-label="Auto research summary">
-    <div><span>Sizes</span><strong>{report.amounts_tested.length}</strong></div>
-    <div><span>Markets</span><strong>{report.markets_tested.length}</strong></div>
-    <div><span>Discovery scans</span><strong>{report.discovery_reports}</strong></div>
-    <div><span>Isolated scans</span><strong>{report.venue_isolated_reports}</strong></div>
-    <div><span>Routes</span><strong>{report.routes_evaluated}</strong></div>
-    <div><span>Confirmed</span><strong className={report.opportunities.length ? "positive" : ""}>{report.opportunities.length}</strong></div>
-  </div>;
+  return <>
+    <div className="research-summary" aria-label="Auto research summary">
+      <div><span>Sizes</span><strong>6 / pair</strong></div>
+      <div><span>Markets</span><strong>{report.markets_tested.length}</strong></div>
+      <div><span>Discovery scans</span><strong>{report.discovery_reports}</strong></div>
+      <div><span>Isolated scans</span><strong>{report.venue_isolated_reports}</strong></div>
+      <div><span>Routes</span><strong>{report.routes_evaluated}</strong></div>
+      <div><span>Confirmed</span><strong className={report.opportunities.length ? "positive" : ""}>{report.opportunities.length}</strong></div>
+    </div>
+    <div className="research-sizing">{report.market_sizing.map((sizing) => <div key={`${sizing.base_coin}-${sizing.quote_coin}`}><strong>{sizing.market_symbol}</strong><span>{sizing.amounts.map((amount) => formatAtomic(amount, sizing.base_decimals, 2)).join(" · ")} {sizing.base_symbol}</span><small>${(Number(sizing.usdc_per_base_atomic) / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 4 })}/{sizing.base_symbol} · gas {formatAtomic(sizing.gas_cost_base, sizing.base_decimals)} {sizing.base_symbol}</small></div>)}</div>
+  </>;
 }
 
 function OpportunityList({ research, onResearch }: { research: ResearchReport | null; onResearch: () => void }) {
   if (!research) return <div className="empty-state"><Sparkles size={30} /><strong>Confirmation required</strong><span>Run auto research. One quote pair never counts as opportunity.</span><button className="button primary" onClick={onResearch}>Start auto research</button></div>;
-  if (!research.opportunities.length) return <div className="empty-state"><Gauge size={30} /><strong>No quote-confirmed opportunity now</strong><span>{research.routes_evaluated} routes across {research.amounts_tested.length} sizes and {research.markets_tested.length} markets checked. Losing and rejected routes remain under Evaluated.</span><button className="button secondary" onClick={onResearch}>Research again</button></div>;
+  if (!research.opportunities.length) return <div className="empty-state"><Gauge size={30} /><strong>No quote-confirmed opportunity now</strong><span>{research.routes_evaluated} routes across six USD-normalized sizes and {research.markets_tested.length} markets checked. Losing and rejected routes remain under Evaluated.</span><button className="button secondary" onClick={onResearch}>Research again</button></div>;
   return <div className="candidate-list">{research.opportunities.map((opportunity, index) => <ConfirmedOpportunityRow key={`${opportunity.route_fingerprint}-${opportunity.amount_in}`} opportunity={opportunity} rank={index + 1} />)}</div>;
 }
 
@@ -225,17 +268,9 @@ function ConfirmedOpportunityRow({ opportunity, rank }: { opportunity: Confirmed
   const candidate = opportunity.representative;
   const simulation = opportunity.simulation;
   const confirmed = opportunity.simulation_status === "simulation_confirmed";
-  return <details className="candidate confirmed"><summary><div className="rank">{rank}</div><div className="route-name"><strong>SUI/{coinSymbol(opportunity.quote_coin)} · {candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span className="validation-chip">{confirmed ? "ATOMIC SIMULATION CONFIRMED" : "VENUE-ISOLATED QUOTE ONLY"} · {opportunity.confirmations}/{opportunity.samples}</span></div><div className="candidate-stat"><span>Input</span><strong>{formatSui(opportunity.amount_in)} SUI</strong></div><div className="candidate-stat"><span>{confirmed ? "Simulated delta" : "Worst quoted net"}</span><strong className={confirmed && simulation && BigInt(simulation.balance_delta) > 0n ? "positive" : ""}>{confirmed && simulation ? `${formatSui(simulation.balance_delta)} SUI` : `+${formatSui(opportunity.worst_net_profit)} SUI`}</strong></div><div className="bps"><strong>{simulation ? `${simulation.confirmation_count}/${simulation.attempts}` : candidate.net_profit_bps}</strong><span>{simulation ? "sim" : "bps"}</span></div><ChevronDown className="chevron" size={18} /></summary><div className="confirmation-evidence"><span>Best quoted +{formatSui(opportunity.best_net_profit)} SUI</span><span>Max quote skew {opportunity.max_quote_skew_ms} ms</span><span>Fingerprint {opportunity.route_fingerprint}</span><strong>Simulation {opportunity.simulation_status.replaceAll("_", " ")}</strong>{simulation && <><span>Measured gas {formatSui(simulation.measured_gas_cost)} SUI</span><span>Observed half-life {simulation.elapsed_half_life_ms === null ? "—" : `${simulation.elapsed_half_life_ms} ms`}</span>{simulation.failure_reason && <span>Failure: {simulation.failure_reason}</span>}</>}</div><Evidence candidate={candidate} /></details>;
-}
-
-function coinSymbol(coinType: string) {
-  if (coinType.endsWith("::usdc::USDC")) return "USDC";
-  if (coinType.endsWith("::cetus::CETUS")) return "CETUS";
-  if (coinType.endsWith("::deep::DEEP")) return "DEEP";
-  if (coinType.endsWith("::wal::WAL")) return "WAL";
-  if (coinType.endsWith("::buck::BUCK")) return "BUCK";
-  if (coinType.includes("c0600061")) return "USDT";
-  return shortId(coinType);
+  const base = coinMeta(opportunity.base_coin);
+  const quote = coinMeta(opportunity.quote_coin);
+  return <details className="candidate confirmed"><summary><div className="rank">{rank}</div><div className="route-name"><strong>{base.symbol}/{quote.symbol} · {candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span className="validation-chip">{confirmed ? "ATOMIC SIMULATION CONFIRMED" : "VENUE-ISOLATED QUOTE ONLY"} · {opportunity.confirmations}/{opportunity.samples}</span></div><div className="candidate-stat"><span>Input</span><strong>{formatAtomic(opportunity.amount_in, base.decimals)} {base.symbol}</strong></div><div className="candidate-stat"><span>{confirmed ? "Simulated delta" : "Worst quoted net"}</span><strong className={confirmed && simulation && BigInt(simulation.balance_delta) > 0n ? "positive" : ""}>{confirmed && simulation ? `${formatAtomic(simulation.balance_delta, base.decimals)} ${base.symbol}` : `+${formatAtomic(opportunity.worst_net_profit, base.decimals)} ${base.symbol}`}</strong></div><div className="bps"><strong>{simulation ? `${simulation.confirmation_count}/${simulation.attempts}` : candidate.net_profit_bps}</strong><span>{simulation ? "sim" : "bps"}</span></div><ChevronDown className="chevron" size={18} /></summary><div className="confirmation-evidence"><span>Best quoted +{formatAtomic(opportunity.best_net_profit, base.decimals)} {base.symbol}</span><span>Max quote skew {opportunity.max_quote_skew_ms} ms</span><span>Fingerprint {opportunity.route_fingerprint}</span><strong>Simulation {opportunity.simulation_status.replaceAll("_", " ")}</strong>{simulation && <><span>Measured gas {formatAtomic(simulation.measured_gas_cost, base.decimals)} {base.symbol}</span><span>Observed half-life {simulation.elapsed_half_life_ms === null ? "—" : `${simulation.elapsed_half_life_ms} ms`}</span>{simulation.failure_reason && <span>Failure: {simulation.failure_reason}</span>}</>}</div><Evidence candidate={candidate} /></details>;
 }
 
 function ResearchFailureList({ research, latest }: { research: ResearchReport | null; latest: ScanReport }) {
@@ -251,11 +286,12 @@ function Field({ label, value, onChange, help }: { label: string; value: string;
 
 function CandidateList({ candidates }: { candidates: Candidate[] }) {
   if (!candidates.length) return <div className="empty-state"><AlertTriangle size={28} /><strong>No complete round trips</strong><span>Check provider failures or adjust source filters.</span></div>;
-  return <div className="candidate-list">{candidates.map((candidate, index) => <details className="candidate" key={`${candidate.forward.provider}-${candidate.reverse.provider}-${index}`}><summary><div className="rank">{index + 1}</div><div className="route-name"><strong>{candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span>{candidate.forward.route.map((hop) => hop.venue).join(" + ") || "Direct quote"}</span></div><div className="candidate-stat"><span>Returned</span><strong>{formatSui(candidate.returned_base)} SUI</strong></div><div className="candidate-stat"><span>Net</span><strong className={BigInt(candidate.net_profit) > 0n ? "positive" : "negative"}>{formatSui(candidate.net_profit)} SUI</strong></div><div className="bps"><strong>{candidate.net_profit_bps}</strong><span>bps</span></div><ChevronDown className="chevron" size={18} /></summary><Evidence candidate={candidate} /></details>)}</div>;
+  return <div className="candidate-list">{candidates.map((candidate, index) => { const base = coinMeta(candidate.forward.coin_in); return <details className="candidate" key={`${candidate.forward.provider}-${candidate.reverse.provider}-${index}`}><summary><div className="rank">{index + 1}</div><div className="route-name"><strong>{coinMeta(candidate.forward.coin_in).symbol}/{coinMeta(candidate.forward.coin_out).symbol} · {candidate.forward.provider} <ArrowRight size={14} /> {candidate.reverse.provider}</strong><span>{candidate.forward.route.map((hop) => hop.venue).join(" + ") || "Direct quote"}</span></div><div className="candidate-stat"><span>Returned</span><strong>{formatAtomic(candidate.returned_base, base.decimals)} {base.symbol}</strong></div><div className="candidate-stat"><span>Net</span><strong className={BigInt(candidate.net_profit) > 0n ? "positive" : "negative"}>{formatAtomic(candidate.net_profit, base.decimals)} {base.symbol}</strong></div><div className="bps"><strong>{candidate.net_profit_bps}</strong><span>bps</span></div><ChevronDown className="chevron" size={18} /></summary><Evidence candidate={candidate} /></details>; })}</div>;
 }
 
 function Evidence({ candidate }: { candidate: Candidate }) {
-  return <div className="evidence"><div className="evidence-grid"><div><span>Gross profit</span><strong>{formatSui(candidate.gross_profit)} SUI</strong></div><div><span>Gas reserve</span><strong>{formatSui(candidate.gas_cost)} SUI</strong></div><div><span>Quote skew</span><strong>{candidate.quote_skew_ms} ms</strong></div><div><span>Provider gas hint</span><strong>{candidate.forward.estimated_gas_cost ? `${formatSui(candidate.forward.estimated_gas_cost)} SUI` : "Unavailable"}</strong></div><div><span>Forward latency</span><strong>{candidate.forward.latency_ms} ms</strong></div><div><span>Reverse latency</span><strong>{candidate.reverse.latency_ms} ms</strong></div></div>{candidate.same_quote_provider && <div className="warning"><AlertTriangle size={15} /> Same quote provider used for both legs.</div>}{candidate.shared_pool_ids.length > 0 && <div className="warning"><AlertTriangle size={15} /> Shared liquidity: {candidate.shared_pool_ids.map(shortId).join(", ")}</div>}{candidate.rejection_reasons.length > 0 && <div className="warning"><AlertTriangle size={15} /> Rejected: {candidate.rejection_reasons.join(", ").replaceAll("_", " ")}</div>}<HopGroup label="Forward" quote={candidate.forward} /><HopGroup label="Reverse" quote={candidate.reverse} /></div>;
+  const base = coinMeta(candidate.forward.coin_in);
+  return <div className="evidence"><div className="evidence-grid"><div><span>Gross profit</span><strong>{formatAtomic(candidate.gross_profit, base.decimals)} {base.symbol}</strong></div><div><span>Gas reserve</span><strong>{formatAtomic(candidate.gas_cost, base.decimals)} {base.symbol}</strong></div><div><span>Quote skew</span><strong>{candidate.quote_skew_ms} ms</strong></div><div><span>Provider gas hint</span><strong>{candidate.forward.estimated_gas_cost ? `${formatSui(candidate.forward.estimated_gas_cost)} SUI` : "Unavailable"}</strong></div><div><span>Forward latency</span><strong>{candidate.forward.latency_ms} ms</strong></div><div><span>Reverse latency</span><strong>{candidate.reverse.latency_ms} ms</strong></div></div>{candidate.same_quote_provider && <div className="warning"><AlertTriangle size={15} /> Same quote provider used for both legs.</div>}{candidate.shared_pool_ids.length > 0 && <div className="warning"><AlertTriangle size={15} /> Shared liquidity: {candidate.shared_pool_ids.map(shortId).join(", ")}</div>}{candidate.rejection_reasons.length > 0 && <div className="warning"><AlertTriangle size={15} /> Rejected: {candidate.rejection_reasons.join(", ").replaceAll("_", " ")}</div>}<HopGroup label="Forward" quote={candidate.forward} /><HopGroup label="Reverse" quote={candidate.reverse} /></div>;
 }
 
 function HopGroup({ label, quote }: { label: string; quote: Candidate["forward"] }) {

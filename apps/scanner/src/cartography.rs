@@ -6,7 +6,12 @@ use crate::{Opportunity, ResearchReport};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CartographyCell {
+    pub base_coin: String,
+    pub base_symbol: String,
+    pub base_decimals: u8,
     pub quote_coin: String,
+    pub quote_symbol: String,
+    pub quote_decimals: u8,
     pub market_symbol: String,
     pub evidence_tier: String,
     pub forward_venues: String,
@@ -58,7 +63,7 @@ fn simulation_status_rank(status: &str) -> u8 {
         "simulation_confirmed" => 4,
         "simulation_non_positive" => 3,
         "fingerprint_mismatch" => 2,
-        "simulation_failed" => 1,
+        "simulation_failed" | "unsupported_base" => 1,
         _ => 0,
     }
 }
@@ -69,7 +74,8 @@ pub fn build_cartography(
     generated_at_ms: u64,
     journal_rejected_lines: usize,
 ) -> CartographyReport {
-    let mut cells: BTreeMap<(String, String, String, String), CellAccumulator> = BTreeMap::new();
+    let mut cells: BTreeMap<(String, String, String, String, String), CellAccumulator> =
+        BTreeMap::new();
     let mut rejection_reasons = BTreeMap::new();
     let mut scan_reports = 0;
     let mut observed_round_trips = 0;
@@ -87,15 +93,22 @@ pub fn build_cartography(
                 let forward_venues = venue_path(candidate, true);
                 let reverse_venues = venue_path(candidate, false);
                 let key = (
+                    report.base_coin.clone(),
                     report.quote_coin.clone(),
                     evidence_tier.clone(),
                     forward_venues.clone(),
                     reverse_venues.clone(),
                 );
+                let metadata = market_metadata(research, &report.base_coin, &report.quote_coin);
                 let entry = cells.entry(key).or_insert_with(|| CellAccumulator {
                     cell: CartographyCell {
+                        base_coin: report.base_coin.clone(),
+                        base_symbol: metadata.base_symbol,
+                        base_decimals: metadata.base_decimals,
                         quote_coin: report.quote_coin.clone(),
-                        market_symbol: market_symbol(research, &report.quote_coin),
+                        quote_symbol: metadata.quote_symbol,
+                        quote_decimals: metadata.quote_decimals,
+                        market_symbol: metadata.market_symbol,
                         evidence_tier,
                         forward_venues,
                         reverse_venues,
@@ -139,6 +152,7 @@ pub fn build_cartography(
                 usize::from(opportunity.simulation_status == "simulation_confirmed");
             let candidate = &opportunity.representative;
             let key = (
+                opportunity.base_coin.clone(),
                 opportunity.quote_coin.clone(),
                 evidence_tier(candidate),
                 venue_path(candidate, true),
@@ -148,12 +162,12 @@ pub fn build_cartography(
                 entry.cell.confirmed_signals += 1;
                 entry.cell.confirmation_hits += opportunity.confirmations;
                 entry.cell.confirmation_samples += opportunity.samples;
+                if simulation_status_rank(&opportunity.simulation_status)
+                    > simulation_status_rank(&entry.cell.simulation_status)
+                {
+                    entry.cell.simulation_status = opportunity.simulation_status.clone();
+                }
                 if let Some(simulation) = &opportunity.simulation {
-                    if simulation_status_rank(&opportunity.simulation_status)
-                        > simulation_status_rank(&entry.cell.simulation_status)
-                    {
-                        entry.cell.simulation_status = opportunity.simulation_status.clone();
-                    }
                     entry.cell.simulation_attempts += simulation.attempts;
                     entry.cell.positive_simulations += simulation.confirmation_count;
                     if entry
@@ -216,7 +230,7 @@ pub fn build_cartography(
     });
     let confirmed_signals = cells.iter().map(|cell| cell.confirmed_signals).sum();
     CartographyReport {
-        schema_version: 2,
+        schema_version: 3,
         generated_at_ms,
         research_runs: reports.len(),
         scan_reports,
@@ -263,23 +277,55 @@ fn venue_path(candidate: &Opportunity, forward: bool) -> String {
     }
 }
 
-fn market_symbol(research: &ResearchReport, coin_type: &str) -> String {
+struct ResolvedMarketMetadata {
+    market_symbol: String,
+    base_symbol: String,
+    base_decimals: u8,
+    quote_symbol: String,
+    quote_decimals: u8,
+}
+
+fn market_metadata(
+    research: &ResearchReport,
+    base_coin: &str,
+    quote_coin: &str,
+) -> ResolvedMarketMetadata {
     if let Some(market) = research
         .market_metadata
         .iter()
-        .find(|market| market.coin_type == coin_type)
+        .find(|market| market.base_coin == base_coin && market.coin_type == quote_coin)
     {
-        return market.symbol.clone();
+        return ResolvedMarketMetadata {
+            market_symbol: market.symbol.clone(),
+            base_symbol: market.base_symbol.clone(),
+            base_decimals: market.base_decimals,
+            quote_symbol: market.resolved_quote_symbol().to_owned(),
+            quote_decimals: market.decimals,
+        };
     }
-    if coin_type.contains("0xc0600061") {
-        return "USDT".to_owned();
-    }
-    coin_type
+    let base_symbol = base_coin
         .rsplit("::")
         .next()
         .filter(|value| !value.is_empty())
-        .unwrap_or(coin_type)
-        .to_owned()
+        .unwrap_or(base_coin)
+        .to_owned();
+    let quote_symbol = if quote_coin.contains("0xc0600061") {
+        "USDT".to_owned()
+    } else {
+        quote_coin
+            .rsplit("::")
+            .next()
+            .filter(|value| !value.is_empty())
+            .unwrap_or(quote_coin)
+            .to_owned()
+    };
+    ResolvedMarketMetadata {
+        market_symbol: format!("{base_symbol}/{quote_symbol}"),
+        base_symbol,
+        base_decimals: 9,
+        quote_symbol,
+        quote_decimals: 9,
+    }
 }
 
 #[cfg(test)]
@@ -341,6 +387,8 @@ mod tests {
             amounts_tested: vec![1_000],
             markets_tested: vec!["package::coin::TEST".to_owned()],
             market_metadata: Vec::new(),
+            adaptive_sizing: None,
+            market_sizing: Vec::new(),
             routes_evaluated: 2,
             provider_failures: 0,
             confirmation_runs: 3,
@@ -376,6 +424,7 @@ mod tests {
                 }),
                 route_fingerprint: "route".to_owned(),
                 amount_in: 1_000,
+                base_coin: "A".to_owned(),
                 quote_coin: "package::coin::TEST".to_owned(),
                 confirmations: 2,
                 samples: 3,
@@ -400,7 +449,7 @@ mod tests {
         let map = build_cartography(&[research], 3, 0);
         assert_eq!(map.cells.len(), 1);
         let cell = &map.cells[0];
-        assert_eq!(cell.market_symbol, "TEST");
+        assert_eq!(cell.market_symbol, "A/TEST");
         assert_eq!(cell.evidence_tier, "venue_isolated");
         assert_eq!(cell.forward_venues, "cetus");
         assert_eq!(cell.reverse_venues, "turbos");
@@ -437,14 +486,17 @@ mod tests {
                 failures: Vec::new(),
             })
             .collect();
-        let opportunities = crate::research::confirm_opportunities(&reports, 2);
+        let mut opportunities = crate::research::confirm_opportunities(&reports, 2);
         assert_eq!(opportunities.len(), 1);
+        opportunities[0].simulation_status = "unsupported_base".to_owned();
         let research = ResearchReport {
             schema_version: 3,
             observed_at_ms: 3,
             amounts_tested: vec![1_000],
             markets_tested: vec!["package::coin::TEST".to_owned()],
             market_metadata: Vec::new(),
+            adaptive_sizing: None,
+            market_sizing: Vec::new(),
             routes_evaluated: 3,
             provider_failures: 0,
             confirmation_runs: 3,
@@ -460,6 +512,7 @@ mod tests {
         assert_eq!(map.cells[0].confirmed_signals, 1);
         assert_eq!(map.cells[0].confirmation_hits, 3);
         assert_eq!(map.cells[0].evidence_tier, "venue_isolated");
+        assert_eq!(map.cells[0].simulation_status, "unsupported_base");
     }
 
     #[test]
@@ -477,5 +530,6 @@ mod tests {
                 > simulation_status_rank("simulation_failed")
         );
         assert!(simulation_status_rank("simulation_failed") > simulation_status_rank("pending"));
+        assert!(simulation_status_rank("unsupported_base") > simulation_status_rank("pending"));
     }
 }

@@ -131,6 +131,8 @@ mod tests {
             amounts_tested: vec![100],
             markets_tested: vec!["B".to_owned()],
             market_metadata: Vec::new(),
+            adaptive_sizing: None,
+            market_sizing: Vec::new(),
             routes_evaluated: 1,
             provider_failures: 0,
             confirmation_runs: 3,

@@ -4,7 +4,12 @@ import { cartographyStatus, preserveCartography, rankCartographyCells, rankRejec
 
 function cell(overrides: Partial<CartographyCell> = {}): CartographyCell {
   return {
+    base_coin: "base",
+    base_symbol: "BASE",
+    base_decimals: 9,
     quote_coin: "coin",
+    quote_symbol: "QUOTE",
+    quote_decimals: 6,
     market_symbol: "TEST",
     evidence_tier: "aggregator_discovery",
     forward_venues: "a",
@@ -50,6 +55,7 @@ describe("cartography presentation", () => {
     expect(cartographyStatus(cell({ simulation_status: "simulation_failed" }))).toBe("Atomic simulation failed");
     expect(cartographyStatus(cell({ simulation_status: "simulation_non_positive" }))).toBe("Atomic simulation non-positive");
     expect(cartographyStatus(cell({ simulation_status: "fingerprint_mismatch" }))).toBe("Simulation fingerprint mismatch");
+    expect(cartographyStatus(cell({ simulation_status: "unsupported_base" }))).toBe("Quote confirmed · simulator unsupported for base");
     expect(cartographyStatus(cell({ confirmed_signals: 1 }))).toBe("Quote confirmed only · simulation pending");
     expect(cartographyStatus(cell())).toBe("Discovery lead only · simulation pending");
   });

@@ -376,6 +376,7 @@ mod tests {
             simulation: None,
             route_fingerprint: "route".to_owned(),
             amount_in: 100,
+            base_coin: "A".to_owned(),
             quote_coin: "B".to_owned(),
             confirmations: 2,
             samples: 3,
